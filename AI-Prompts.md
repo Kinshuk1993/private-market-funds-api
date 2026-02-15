@@ -86,3 +86,19 @@ based on the prompts that i have given, create a new AI-Prompt.md file and add t
 - Will be updated with new prompts as they are given
 
 ---
+
+## Prompt 6: Initialize Git Repo and Push
+
+**Date:** February 15, 2026
+
+**Request:**
+
+```text
+for all the files and folders in this repo, initialize a git repo in the directory and push everything to the a new branch main at https://github.com/Kinshuk1993/private-market-funds-api.git
+```
+
+**Context:**
+
+- Initialized a git repository and pushed the initial commit to main
+
+---
