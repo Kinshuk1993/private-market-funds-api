@@ -1,0 +1,33 @@
+titanbay-service/
+├── app/
+│   ├── api/
+│   │   └── v1/
+│   │       ├── api.py             # Router aggregator
+│   │       └── endpoints/
+│   │           ├── funds.py
+│   │           └── investors.py   # Includes nested investment logic
+│   ├── core/
+│   │   ├── config.py
+│   │   └── exceptions.py
+│   ├── db/
+│   │   ├── session.py
+│   │   └── base.py
+│   ├── models/
+│   │   ├── fund.py
+│   │   ├── investor.py
+│   │   └── investment.py
+│   ├── repositories/
+│   │   ├── base.py
+│   │   ├── fund_repo.py
+│   │   └── investor_repo.py       # Handles investors & investments
+│   ├── schemas/
+│   │   ├── fund.py
+│   │   ├── investor.py
+│   │   └── investment.py
+│   ├── services/
+│   │   ├── fund_service.py
+│   │   └── investor_service.py
+│   └── main.py
+├── .env
+├── docker-compose.yml
+└── requirements.txt

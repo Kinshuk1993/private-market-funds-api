@@ -1,0 +1,16 @@
+# ── Core framework ──
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+
+# ── ORM / Database ──
+sqlalchemy==2.0.36
+sqlmodel==0.0.22
+asyncpg==0.30.0
+
+# ── Settings & validation ──
+pydantic-settings==2.7.1
+pydantic[email]==2.10.5
+
+# ── Migrations (available for future use) ──
+alembic==1.14.1
+psycopg2-binary==2.9.10
