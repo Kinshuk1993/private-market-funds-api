@@ -6,7 +6,7 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
 
 class InvestmentBase(BaseModel):
@@ -62,5 +62,15 @@ class InvestmentResponse(InvestmentBase):
     id: UUID
     fund_id: UUID
     investor_id: UUID
+
+    @field_serializer("amount_usd")
+    @classmethod
+    def serialize_decimal_as_number(cls, v: Decimal) -> float:
+        """
+        Serialize Decimal as a JSON number to match the API spec.
+
+        The spec shows ``amount_usd: 50000000.00`` as a number, not a string.
+        """
+        return float(v)
 
     model_config = ConfigDict(from_attributes=True)

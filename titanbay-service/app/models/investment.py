@@ -41,3 +41,9 @@ class Investment(SQLModel, table=True):
     # ── Relationships ──
     fund: Optional["Fund"] = Relationship(back_populates="investments")
     investor: Optional["Investor"] = Relationship(back_populates="investments")
+
+    def __repr__(self) -> str:
+        return (
+            f"<Investment id={self.id} fund={self.fund_id} "
+            f"investor={self.investor_id} amount=${self.amount_usd}>"
+        )

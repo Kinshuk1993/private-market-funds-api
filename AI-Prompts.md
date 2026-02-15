@@ -102,3 +102,24 @@ for all the files and folders in this repo, initialize a git repo in the directo
 - Initialized a git repository and pushed the initial commit to main
 
 ---
+
+## Prompt 7: Deep Review and Production Hardening
+
+**Date:** February 15, 2026
+
+**Request:**
+
+```text
+can you have a look at everything again in as detail as possible and ultra ultra think deep. You are a staff software engineer at meta. Look, analyse, understand the task directory for instructions on what the task is for the coding task, the API spec pdf document which contains the specifications (if you cannot read the pdf file, then i have a docx file equivalent for both of those, so read from that) and then look at the setup directory which was done using gemini 3.0 pro, then look at what the titanbay service directory - each file in it, study and understand and analyze it properly in as depth as possible. understand the whole context and what the code is doing and compare at every step with the requirements and then see if there are any things that are wrong, missing or can be improved upon in the current implementation. For all the changes you suggest and dom make a document for all those documenting all the changes with reasoning behind why those are needed and what impact it has including what will happen if they are not done right now. Consider making this app reliable, production ready, highly scalable, ready to serve millions of users concurrently across the globe, having ultra low latency and maintainable. Doing this, make sure it is also optimized and easy to understand, so visit every single file and make sure there are comments and documentation added for each of the code files and that every tricky bit of code is tracked.
+```
+
+**Context:**
+
+- Read both task docx files (Take Home Task + API Spec) for full requirements
+- Read every single source file in the titanbay-service directory
+- Analyzed the 4 Gemini setup scripts to understand scaffolding history
+- Identified 15+ improvements across compliance, scalability, reliability, and DX
+- Created `updated-round2.md` documenting all changes with reasoning and impact
+- Key changes: Decimal serialization fix, pagination on all endpoints, GZip/RequestID/Timing middleware, DB health check, TOCTOU race fix, deterministic ordering, dynamic year validation, `__repr__` on models, OpenAPI error schemas, `.env.example`, package docstrings
+
+---

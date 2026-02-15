@@ -48,3 +48,6 @@ class Fund(SQLModel, table=True):
 
     # ── Relationships ──
     investments: List["Investment"] = Relationship(back_populates="fund")
+
+    def __repr__(self) -> str:
+        return f"<Fund id={self.id} name='{self.name}' status={self.status.value}>"
