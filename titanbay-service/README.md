@@ -49,29 +49,75 @@ app/
 
 | Component | Choice |
 | --------- | ------ |
-| Language | Python 3.11 |
-| Framework | FastAPI 0.115 |
+| Language | Python 3.14+ |
+| Framework | FastAPI 0.115+ |
 | ORM | SQLAlchemy 2.0 (async) + SQLModel |
-| Database | PostgreSQL 15 |
+| Database | PostgreSQL 15+ |
 | Validation | Pydantic v2 |
 | Container | Docker + Docker Compose |
 
 ## Quick Start
 
-### Prerequisites
+### Option A: Docker
+
+#### Prerequisites
 
 - Docker & Docker Compose
 
-### 1. Start the services
+#### 1. Start the services
 
 ```bash
 docker-compose up --build
 ```
 
-### 2. Seed sample data (optional)
+#### 2. Seed sample data (optional)
 
 ```bash
 docker-compose exec web python -m app.seed
+```
+
+### Option B: Local Development (without Docker)
+
+#### Local Setup Prerequisites
+
+- Python 3.14+ installed
+- PostgreSQL running locally (any version 15+)
+
+#### 1. Create the database
+
+```bash
+psql -U postgres -h 127.0.0.1 -c "CREATE USER titanbay_user WITH PASSWORD 'titanbay_password';"
+psql -U postgres -h 127.0.0.1 -c "CREATE DATABASE titanbay_db OWNER titanbay_user;"
+```
+
+#### 2. Set up virtual environment and install dependencies
+
+```bash
+cd titanbay-service
+python -m venv venv
+source venv/bin/activate        # Linux/macOS
+# or: source venv/Scripts/activate  # Git Bash on Windows
+
+pip install -r requirements.txt
+```
+
+#### 3. Configure environment
+
+```bash
+cp .env.example .env
+# Edit .env — set POSTGRES_SERVER=127.0.0.1 for local development
+```
+
+#### 4. Start the application
+
+```bash
+uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+#### 5. Seed sample data (optional)
+
+```bash
+python -m app.seed
 ```
 
 ### 3. Open the docs

@@ -30,7 +30,7 @@ class Investment(SQLModel, table=True):
       ``investment_date`` supplied by the caller.
     """
 
-    __tablename__ = "investments"
+    __tablename__ = "investments"  # type: ignore[assignment]
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     investor_id: uuid.UUID = Field(foreign_key="investors.id", index=True)

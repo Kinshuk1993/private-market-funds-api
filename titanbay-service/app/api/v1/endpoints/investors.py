@@ -32,7 +32,7 @@ def _get_investor_service(db: AsyncSession = Depends(get_db)) -> InvestorService
 
 
 @router.get(
-    "/",
+    "",
     response_model=List[InvestorResponse],
     summary="List all investors",
     description=(
@@ -49,7 +49,7 @@ async def list_investors(
 
 
 @router.post(
-    "/",
+    "",
     response_model=InvestorResponse,
     status_code=201,
     summary="Create a new investor",

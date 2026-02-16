@@ -10,6 +10,7 @@ from decimal import Decimal
 from enum import Enum
 from typing import TYPE_CHECKING, List, Optional
 
+from sqlalchemy import DateTime
 from sqlmodel import Field, Relationship, SQLModel
 
 if TYPE_CHECKING:
@@ -34,7 +35,7 @@ class Fund(SQLModel, table=True):
     - ``status`` defaults to *Fundraising* on creation.
     """
 
-    __tablename__ = "funds"
+    __tablename__ = "funds"  # type: ignore[assignment]
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     name: str = Field(index=True, max_length=255)
@@ -44,6 +45,7 @@ class Fund(SQLModel, table=True):
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         nullable=False,
+        sa_type=DateTime(timezone=True),  # type: ignore[arg-type]
     )
 
     # ── Relationships ──
