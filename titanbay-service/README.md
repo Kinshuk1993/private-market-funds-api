@@ -80,15 +80,23 @@ docker-compose exec web python -m app.seed
 
 #### Local Setup Prerequisites
 
-- Python 3.14+ installed
-- PostgreSQL running locally (any version 15+)
+- **Python 3.14+** installed
+- **PostgreSQL 15+** installed and **running** locally. The application **will not start** without a reachable PostgreSQL instance — it connects to the database during startup to create tables.
+  - **Windows:** Install from <https://www.postgresql.org/download/windows/> or via `winget install PostgreSQL.PostgreSQL`. After installation, ensure the PostgreSQL service is running (check *Services* or run `pg_isready`).
+  - **macOS:** `brew install postgresql@16 && brew services start postgresql@16`
+  - **Linux:** `sudo apt install postgresql` (or equivalent for your distro) and `sudo systemctl start postgresql`
+- **PostgreSQL superuser credentials** — You need to know the password for the `postgres` superuser (set during installation) to create the application database and user in the next step.
 
-#### 1. Create the database
+#### 1. Create the database and user
+
+Connect to PostgreSQL using the `postgres` superuser and create the application database:
 
 ```bash
 psql -U postgres -h 127.0.0.1 -c "CREATE USER titanbay_user WITH PASSWORD 'titanbay_password';"
 psql -U postgres -h 127.0.0.1 -c "CREATE DATABASE titanbay_db OWNER titanbay_user;"
 ```
+
+> **Note:** You will be prompted for the `postgres` superuser password. If you haven't set one, refer to your OS-specific PostgreSQL installation docs to configure it.
 
 #### 2. Set up virtual environment and install dependencies
 
@@ -114,18 +122,22 @@ cp .env.example .env
 uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
+> **What happens on startup:** The application automatically creates all required database tables (`funds`, `investors`, `investments`) if they don't already exist. This is handled by the `lifespan` function in `app/main.py`, which calls `SQLModel.metadata.create_all` against the configured database. You do **not** need to run any migrations or SQL scripts manually — just ensure the database and user from step 1 exist. If the database is unreachable at startup, the application will fail with a connection error.
+
 #### 5. Seed sample data (optional)
 
 ```bash
 python -m app.seed
 ```
 
+> **What the seed does:** The seed script inserts sample funds, investors, and investments into the database for development and demo purposes. It is **completely optional** — the application works fine without it. If you skip seeding, API endpoints like `GET /funds` will return empty arrays (`[]`) until you create data via the `POST` endpoints. The seed is idempotent: running it multiple times will not create duplicate records.
+
 ### 3. Open the docs
 
 | URL | Description |
 | --- | ----------- |
 | <http://localhost:8000/docs> | Swagger UI (interactive) |
-| <http://localhost:8000/redoc> | ReDoc (read-only) |
+| <http://localhost:8000/redoc> | ReDoc (read-only reference docs) |
 | <http://localhost:8000/health> | Liveness probe |
 
 ## API Endpoints
@@ -154,6 +166,352 @@ All endpoints are prefixed with `/api/v1`.
 | ------ | ---- | ----------- |
 | GET | `/funds/{fund_id}/investments` | List investments for a fund |
 | POST | `/funds/{fund_id}/investments` | Create a new investment |
+
+## Sample Requests & Responses
+
+> All examples use `curl`. Replace `localhost:8000` with your host if different.
+> UUIDs in responses will differ — the ones below are illustrative.
+
+---
+
+### POST /api/v1/funds — Create a fund
+
+**Happy path (201 Created):**
+
+```bash
+curl -s -X POST http://localhost:8000/api/v1/funds \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Titanbay Growth Fund II",
+    "vintage_year": 2025,
+    "target_size_usd": 500000000.00,
+    "status": "Fundraising"
+  }'
+```
+
+```json
+{
+  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "name": "Titanbay Growth Fund II",
+  "vintage_year": 2025,
+  "target_size_usd": 500000000.0,
+  "status": "Fundraising",
+  "created_at": "2025-02-16T12:00:00Z"
+}
+```
+
+**Error path (422 Validation Error) — missing required field:**
+
+```bash
+curl -s -X POST http://localhost:8000/api/v1/funds \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Bad Fund",
+    "vintage_year": 2025
+  }'
+```
+
+```json
+{
+  "error": true,
+  "message": "Validation failed",
+  "details": [
+    { "field": "body -> target_size_usd", "message": "Field required" }
+  ]
+}
+```
+
+---
+
+### GET /api/v1/funds — List all funds
+
+**Happy path (200 OK):**
+
+```bash
+curl -s http://localhost:8000/api/v1/funds
+```
+
+```json
+[
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "Titanbay Growth Fund I",
+    "vintage_year": 2024,
+    "target_size_usd": 250000000.0,
+    "status": "Fundraising",
+    "created_at": "2024-01-15T10:30:00Z"
+  }
+]
+```
+
+> Returns `[]` if no funds exist yet.
+
+**Error path (422 Validation Error) — invalid query parameter:**
+
+```bash
+curl -s "http://localhost:8000/api/v1/funds?limit=-1"
+```
+
+```json
+{
+  "error": true,
+  "message": "Validation failed",
+  "details": [
+    { "field": "query -> limit", "message": "Input should be greater than or equal to 1" }
+  ]
+}
+```
+
+---
+
+### GET /api/v1/funds/{id} — Get a specific fund
+
+**Happy path (200 OK):**
+
+```bash
+curl -s http://localhost:8000/api/v1/funds/550e8400-e29b-41d4-a716-446655440000
+```
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "name": "Titanbay Growth Fund I",
+  "vintage_year": 2024,
+  "target_size_usd": 250000000.0,
+  "status": "Fundraising",
+  "created_at": "2024-01-15T10:30:00Z"
+}
+```
+
+**Error path (404 Not Found) — fund does not exist:**
+
+```bash
+curl -s http://localhost:8000/api/v1/funds/00000000-0000-0000-0000-000000000000
+```
+
+```json
+{
+  "error": true,
+  "message": "Fund with id '00000000-0000-0000-0000-000000000000' not found"
+}
+```
+
+---
+
+### PUT /api/v1/funds — Update a fund
+
+**Happy path (200 OK):**
+
+```bash
+curl -s -X PUT http://localhost:8000/api/v1/funds \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "Titanbay Growth Fund I",
+    "vintage_year": 2024,
+    "target_size_usd": 300000000.00,
+    "status": "Investing"
+  }'
+```
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "name": "Titanbay Growth Fund I",
+  "vintage_year": 2024,
+  "target_size_usd": 300000000.0,
+  "status": "Investing",
+  "created_at": "2024-01-15T10:30:00Z"
+}
+```
+
+**Error path (404 Not Found) — fund id does not exist:**
+
+```bash
+curl -s -X PUT http://localhost:8000/api/v1/funds \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "00000000-0000-0000-0000-000000000000",
+    "name": "Ghost Fund",
+    "vintage_year": 2024,
+    "target_size_usd": 100000000.00,
+    "status": "Fundraising"
+  }'
+```
+
+```json
+{
+  "error": true,
+  "message": "Fund with id '00000000-0000-0000-0000-000000000000' not found"
+}
+```
+
+---
+
+### POST /api/v1/investors — Create an investor
+
+**Happy path (201 Created):**
+
+```bash
+curl -s -X POST http://localhost:8000/api/v1/investors \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "CalPERS",
+    "investor_type": "Institution",
+    "email": "privateequity@calpers.ca.gov"
+  }'
+```
+
+```json
+{
+  "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+  "name": "CalPERS",
+  "investor_type": "Institution",
+  "email": "privateequity@calpers.ca.gov",
+  "created_at": "2025-02-16T12:05:00Z"
+}
+```
+
+**Error path (409 Conflict) — duplicate email:**
+
+```bash
+curl -s -X POST http://localhost:8000/api/v1/investors \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "CalPERS Duplicate",
+    "investor_type": "Institution",
+    "email": "privateequity@calpers.ca.gov"
+  }'
+```
+
+```json
+{
+  "error": true,
+  "message": "An investor with email 'privateequity@calpers.ca.gov' already exists"
+}
+```
+
+---
+
+### GET /api/v1/investors — List all investors
+
+**Happy path (200 OK):**
+
+```bash
+curl -s http://localhost:8000/api/v1/investors
+```
+
+```json
+[
+  {
+    "id": "770e8400-e29b-41d4-a716-446655440002",
+    "name": "Goldman Sachs Asset Management",
+    "investor_type": "Institution",
+    "email": "investments@gsam.com",
+    "created_at": "2024-02-10T09:15:00Z"
+  }
+]
+```
+
+> Returns `[]` if no investors exist yet.
+
+**Error path (422 Validation Error) — invalid query parameter:**
+
+```bash
+curl -s "http://localhost:8000/api/v1/investors?skip=-5"
+```
+
+```json
+{
+  "error": true,
+  "message": "Validation failed",
+  "details": [
+    { "field": "query -> skip", "message": "Input should be greater than or equal to 0" }
+  ]
+}
+```
+
+---
+
+### POST /api/v1/funds/{fund_id}/investments — Create an investment
+
+**Happy path (201 Created):**
+
+```bash
+curl -s -X POST http://localhost:8000/api/v1/funds/550e8400-e29b-41d4-a716-446655440000/investments \
+  -H "Content-Type: application/json" \
+  -d '{
+    "investor_id": "770e8400-e29b-41d4-a716-446655440002",
+    "amount_usd": 75000000.00,
+    "investment_date": "2024-09-22"
+  }'
+```
+
+```json
+{
+  "id": "c3d4e5f6-a7b8-9012-cdef-123456789012",
+  "fund_id": "550e8400-e29b-41d4-a716-446655440000",
+  "investor_id": "770e8400-e29b-41d4-a716-446655440002",
+  "amount_usd": 75000000.0,
+  "investment_date": "2024-09-22"
+}
+```
+
+**Error path (422 Business Rule Violation) — fund is closed:**
+
+```bash
+curl -s -X POST http://localhost:8000/api/v1/funds/220e8400-e29b-41d4-a716-446655440020/investments \
+  -H "Content-Type: application/json" \
+  -d '{
+    "investor_id": "770e8400-e29b-41d4-a716-446655440002",
+    "amount_usd": 10000000.00,
+    "investment_date": "2024-09-22"
+  }'
+```
+
+```json
+{
+  "error": true,
+  "message": "Cannot invest in fund 'Titanbay Venture Fund I' — status is Closed"
+}
+```
+
+---
+
+### GET /api/v1/funds/{fund_id}/investments — List investments for a fund
+
+**Happy path (200 OK):**
+
+```bash
+curl -s http://localhost:8000/api/v1/funds/550e8400-e29b-41d4-a716-446655440000/investments
+```
+
+```json
+[
+  {
+    "id": "990e8400-e29b-41d4-a716-446655440004",
+    "fund_id": "550e8400-e29b-41d4-a716-446655440000",
+    "investor_id": "770e8400-e29b-41d4-a716-446655440002",
+    "amount_usd": 50000000.0,
+    "investment_date": "2024-03-15"
+  }
+]
+```
+
+> Returns `[]` if the fund has no investments.
+
+**Error path (404 Not Found) — fund does not exist:**
+
+```bash
+curl -s http://localhost:8000/api/v1/funds/00000000-0000-0000-0000-000000000000/investments
+```
+
+```json
+{
+  "error": true,
+  "message": "Fund with id '00000000-0000-0000-0000-000000000000' not found"
+}
+```
 
 ## Key Design Decisions
 
