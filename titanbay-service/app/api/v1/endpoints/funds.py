@@ -11,12 +11,13 @@ All four fund-related routes from the API specification:
 from typing import List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.models.fund import Fund
 from app.repositories.fund_repo import FundRepository
+from app.schemas.common import ErrorResponse, ValidationErrorResponse
 from app.schemas.fund import FundCreate, FundResponse, FundUpdate
 from app.services.fund_service import FundService
 
@@ -38,12 +39,17 @@ def _get_fund_service(db: AsyncSession = Depends(get_db)) -> FundService:
     "/",
     response_model=List[FundResponse],
     summary="List all funds",
-    description="Returns every fund in the system.",
+    description=(
+        "Returns a paginated list of funds.  Use ``skip`` and ``limit`` "
+        "query parameters to page through large result sets."
+    ),
 )
 async def list_funds(
+    skip: int = Query(0, ge=0, description="Number of records to skip"),
+    limit: int = Query(100, ge=1, le=1000, description="Max records to return"),
     service: FundService = Depends(_get_fund_service),
 ) -> List[FundResponse]:
-    return await service.get_all_funds()
+    return await service.get_all_funds(skip=skip, limit=limit)
 
 
 @router.post(
@@ -52,6 +58,9 @@ async def list_funds(
     status_code=201,
     summary="Create a new fund",
     description="Accepts fund details and creates a new fund record.",
+    responses={
+        422: {"model": ValidationErrorResponse, "description": "Validation error"},
+    },
 )
 async def create_fund(
     fund: FundCreate,
@@ -69,6 +78,10 @@ async def create_fund(
         "along with all fields.  Per the API spec, the id is passed in the body "
         "rather than the URL path."
     ),
+    responses={
+        404: {"model": ErrorResponse, "description": "Fund not found"},
+        422: {"model": ValidationErrorResponse, "description": "Validation error"},
+    },
 )
 async def update_fund(
     fund_update: FundUpdate,
@@ -82,6 +95,9 @@ async def update_fund(
     response_model=FundResponse,
     summary="Get a specific fund",
     description="Retrieve a single fund by its UUID.",
+    responses={
+        404: {"model": ErrorResponse, "description": "Fund not found"},
+    },
 )
 async def get_fund(
     fund_id: UUID,

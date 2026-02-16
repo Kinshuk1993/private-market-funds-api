@@ -10,14 +10,16 @@ from decimal import Decimal
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
 from app.models.fund import FundStatus
 
 
 # ── Shared validation helpers ──
 
-_CURRENT_YEAR = 2026  # Upper-bound for vintage_year validation
+# Dynamically computed so the validation bound advances each calendar year
+# without requiring a code change or redeployment.
+_CURRENT_YEAR = datetime.now().year
 
 
 class FundBase(BaseModel):
@@ -94,5 +96,17 @@ class FundResponse(FundBase):
 
     id: UUID
     created_at: datetime
+
+    @field_serializer("target_size_usd")
+    @classmethod
+    def serialize_decimal_as_number(cls, v: Decimal) -> float:
+        """
+        Serialize Decimal as a JSON number (float) rather than a string.
+
+        The API spec shows ``target_size_usd: 250000000.00`` as a number.
+        Pydantic v2 defaults to string serialization for Decimal, which would
+        break clients expecting a numeric type.
+        """
+        return float(v)
 
     model_config = ConfigDict(from_attributes=True)

@@ -9,7 +9,7 @@ Investments are scoped under funds:
 from typing import List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
@@ -19,6 +19,7 @@ from app.models.investor import Investor
 from app.repositories.fund_repo import FundRepository
 from app.repositories.investment_repo import InvestmentRepository
 from app.repositories.investor_repo import InvestorRepository
+from app.schemas.common import ErrorResponse, ValidationErrorResponse
 from app.schemas.investment import InvestmentCreate, InvestmentResponse
 from app.services.investment_service import InvestmentService
 
@@ -51,13 +52,21 @@ def _get_investment_service(db: AsyncSession = Depends(get_db)) -> InvestmentSer
     "/funds/{fund_id}/investments",
     response_model=List[InvestmentResponse],
     summary="List investments for a fund",
-    description="Returns all investment commitments associated with the given fund.",
+    description=(
+        "Returns all investment commitments associated with the given fund. "
+        "Use ``skip`` and ``limit`` to paginate."
+    ),
+    responses={
+        404: {"model": ErrorResponse, "description": "Fund not found"},
+    },
 )
 async def list_investments(
     fund_id: UUID,
+    skip: int = Query(0, ge=0, description="Number of records to skip"),
+    limit: int = Query(100, ge=1, le=1000, description="Max records to return"),
     service: InvestmentService = Depends(_get_investment_service),
 ) -> List[InvestmentResponse]:
-    return await service.get_investments_by_fund(fund_id)
+    return await service.get_investments_by_fund(fund_id, skip=skip, limit=limit)
 
 
 @router.post(
@@ -70,6 +79,13 @@ async def list_investments(
         "The fund must not be in *Closed* status, and both the fund and "
         "the investor must exist."
     ),
+    responses={
+        404: {"model": ErrorResponse, "description": "Fund or investor not found"},
+        422: {
+            "model": ValidationErrorResponse,
+            "description": "Validation error or business rule violation",
+        },
+    },
 )
 async def create_investment(
     fund_id: UUID,

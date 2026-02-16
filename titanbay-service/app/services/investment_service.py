@@ -40,9 +40,11 @@ class InvestmentService:
 
     # ── Queries ──
 
-    async def get_investments_by_fund(self, fund_id: UUID) -> List[Investment]:
+    async def get_investments_by_fund(
+        self, fund_id: UUID, skip: int = 0, limit: int = 100
+    ) -> List[Investment]:
         """
-        Return all investments for a given fund.
+        Return investments for a given fund, with pagination.
 
         The fund is validated first so the caller gets a clear 404 instead
         of an empty list when the fund does not exist.
@@ -50,7 +52,7 @@ class InvestmentService:
         fund = await self._fund_repo.get(fund_id)
         if not fund:
             raise NotFoundException("Fund", fund_id)
-        return await self._invest_repo.get_by_fund(fund_id)
+        return await self._invest_repo.get_by_fund(fund_id, skip=skip, limit=limit)
 
     # ── Commands ──
 

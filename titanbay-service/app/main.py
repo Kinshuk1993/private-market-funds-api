@@ -11,12 +11,15 @@ from collections.abc import AsyncGenerator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
+from sqlalchemy import text
 from sqlmodel import SQLModel
 
 from app.api.v1.api import api_router
 from app.core.config import settings
 from app.core.exceptions import add_exception_handlers
-from app.db.session import engine
+from app.db.session import AsyncSessionLocal, engine
+from app.middleware import RequestIDMiddleware, RequestTimingMiddleware
 
 # ── Structured logging configuration ──
 logging.basicConfig(
@@ -75,7 +78,19 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# ── CORS ──
+# ── Middleware (order matters: outermost = first to execute) ──
+# GZip compresses responses > 500 bytes — critical for reducing bandwidth
+# when serving millions of global users, especially on list endpoints
+# that return large JSON arrays.
+app.add_middleware(GZipMiddleware, minimum_size=500)
+
+# Request ID: injects/propagates X-Request-ID for distributed tracing
+app.add_middleware(RequestIDMiddleware)
+
+# Request timing: logs duration and adds X-Process-Time header
+app.add_middleware(RequestTimingMiddleware)
+
+# CORS: allows cross-origin requests from configured origins
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS.split(","),
@@ -97,9 +112,19 @@ app.include_router(api_router, prefix=settings.API_V1_STR)
 @app.get("/health", tags=["Health"])
 async def health_check():
     """
-    Lightweight liveness probe.
+    Liveness / readiness probe with database connectivity check.
 
-    Returns 200 with the service version.  Suitable for use as a Kubernetes
-    liveness or readiness probe target.
+    Returns 200 with service metadata when healthy.  Verifies the database
+    is reachable by executing a lightweight ``SELECT 1`` — without this,
+    a Kubernetes readiness probe would keep routing traffic to a pod that
+    has lost its DB connection, causing cascading 500 errors.
     """
-    return {"status": "ok", "version": "1.0.0"}
+    db_healthy = True
+    try:
+        async with AsyncSessionLocal() as session:
+            await session.execute(text("SELECT 1"))
+    except Exception:
+        db_healthy = False
+
+    status = "ok" if db_healthy else "degraded"
+    return {"status": status, "version": "1.0.0", "database": db_healthy}

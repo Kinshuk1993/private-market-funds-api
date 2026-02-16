@@ -28,9 +28,9 @@ class FundService:
 
     # ── Queries ──
 
-    async def get_all_funds(self) -> List[Fund]:
-        """Return all funds."""
-        return await self._repo.get_all()
+    async def get_all_funds(self, skip: int = 0, limit: int = 100) -> List[Fund]:
+        """Return a paginated list of funds."""
+        return await self._repo.get_all(skip=skip, limit=limit)
 
     async def get_fund(self, fund_id: UUID) -> Fund:
         """
