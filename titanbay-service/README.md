@@ -147,6 +147,23 @@ To also remove the built image:
 docker rmi titanbay-service
 ```
 
+#### One-Command Test (Docker)
+
+Instead of running steps 1-6 manually, you can use the automated test script.
+It starts PostgreSQL + the app in Docker, runs **41 curl tests** (happy-path + edge-cases)
+against all 8 endpoints, captures output to `logs/docker_test.log`, and tears everything down:
+
+```bash
+bash scripts/test_docker.sh
+```
+
+> **Windows (Git Bash):** `"C:\Program Files\Git\bin\bash.exe" scripts/test_docker.sh`
+
+**No manual prompts — fully automatic.** All database credentials are passed via
+Docker environment variables (`-e`). The script never calls `psql` or asks for any
+passwords. It creates the containers, waits for them to be healthy, runs every test,
+prints a pass/fail summary, and tears down. Zero interaction required.
+
 ### Option B: Local Development (without Docker)
 
 #### Local Setup Prerequisites
@@ -202,6 +219,43 @@ python -m app.seed
 ```
 
 > **What the seed does:** The seed script inserts sample funds, investors, and investments into the database for development and demo purposes. It is **completely optional** — the application works fine without it. If you skip seeding, API endpoints like `GET /funds` will return empty arrays (`[]`) until you create data via the `POST` endpoints. The seed is idempotent: running it multiple times will not create duplicate records.
+
+#### One-Command Test (Local)
+
+Instead of running steps 1-5 manually, you can use the automated test script.
+It checks PostgreSQL connectivity, sets up the venv, starts uvicorn, runs **41 curl tests**
+(happy-path + edge-cases) against all 8 endpoints, captures output to `logs/local_test.log`,
+and stops the server on exit:
+
+```bash
+bash scripts/test_local.sh
+```
+
+> **Windows (Git Bash):** `"C:\Program Files\Git\bin\bash.exe" scripts/test_local.sh`
+
+**Will it prompt for a password?** No — the script **never** opens an interactive prompt.
+Here is how it works depending on your database state:
+
+| Scenario | What happens | Action needed |
+| -------- | ------------ | ------------- |
+| DB + user already exist (typical after first setup) | Script connects as `titanbay_user`, skips admin setup entirely. **Fully automatic.** | None |
+| DB/user don't exist, `postgres` superuser has **trust** auth (common on macOS Homebrew) | Script auto-creates the user and database via `psql --no-password`. **Fully automatic.** | None |
+| DB/user don't exist, `postgres` superuser **requires a password** | Script cannot authenticate as the superuser. It **fails immediately** (does not hang) with a clear error message. | Either set `PGPASSWORD_ADMIN` (see below) or run the two SQL commands from Step 1 once manually. |
+
+To supply the postgres superuser password without any prompt:
+
+```bash
+# Linux / macOS
+PGPASSWORD_ADMIN=your_postgres_password bash scripts/test_local.sh
+
+# Windows (Git Bash)
+PGPASSWORD_ADMIN=your_postgres_password "C:\Program Files\Git\bin\bash.exe" scripts/test_local.sh
+```
+
+Once the database and user exist (after the first successful run or manual Step 1),
+`PGPASSWORD_ADMIN` is never needed again — the script detects the existing setup and
+skips all superuser operations. Every subsequent run is fully automatic with zero
+interaction.
 
 ### 3. Open the docs
 

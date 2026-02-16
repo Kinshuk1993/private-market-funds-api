@@ -29,3 +29,6 @@ htmlcov/
 
 # Type checking
 .mypy_cache/
+
+# Test logs
+logs/
