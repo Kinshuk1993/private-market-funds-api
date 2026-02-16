@@ -54,26 +54,97 @@ app/
 | ORM | SQLAlchemy 2.0 (async) + SQLModel |
 | Database | PostgreSQL 15+ |
 | Validation | Pydantic v2 |
-| Container | Docker + Docker Compose |
+| Container | Docker (multi-stage build) |
 
 ## Quick Start
 
-### Option A: Docker
+### Option A: Docker (Recommended)
+
+> **No local PostgreSQL required.** Both the app and the database run as Docker containers
+> on a shared network. This is also easily portable to Kubernetes for testing.
 
 #### Prerequisites
 
-- Docker & Docker Compose
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Windows / macOS) or Docker Engine (Linux)
 
-#### 1. Start the services
+#### 1. Create a Docker network
+
+A user-defined bridge network lets the two containers resolve each other by name:
 
 ```bash
-docker-compose up --build
+docker network create titanbay-net
 ```
 
-#### 2. Seed sample data (optional)
+#### 2. Start PostgreSQL
 
 ```bash
-docker-compose exec web python -m app.seed
+docker run -d \
+  --name titanbay-db \
+  --network titanbay-net \
+  -e POSTGRES_USER=titanbay_user \
+  -e POSTGRES_PASSWORD=titanbay_password \
+  -e POSTGRES_DB=titanbay_db \
+  -p 5432:5432 \
+  postgres:15-alpine
+```
+
+> `-p 5432:5432` is optional — it exposes Postgres to the host for debugging with tools like `psql` or pgAdmin. The app container connects via the Docker network, not the host port.
+
+#### 3. Build the app image
+
+```bash
+cd titanbay-service
+docker build -t titanbay-service .
+```
+
+#### 4. Run the app
+
+```bash
+docker run -d \
+  --name titanbay-app \
+  --network titanbay-net \
+  -p 8000:8000 \
+  -e POSTGRES_USER=titanbay_user \
+  -e POSTGRES_PASSWORD=titanbay_password \
+  -e POSTGRES_SERVER=titanbay-db \
+  -e POSTGRES_DB=titanbay_db \
+  -e POSTGRES_PORT=5432 \
+  titanbay-service
+```
+
+> `POSTGRES_SERVER=titanbay-db` uses the container name — Docker DNS resolves it within the `titanbay-net` network.
+
+The app will auto-create all database tables on first startup. Verify with:
+
+```bash
+docker logs titanbay-app
+# Expected: "Database tables ready" followed by "Uvicorn running on http://0.0.0.0:8000"
+```
+
+#### 5. Seed sample data (optional)
+
+```bash
+docker exec titanbay-app python -m app.seed
+```
+
+#### 6. Verify
+
+```bash
+curl http://localhost:8000/health
+# {"status":"ok","version":"1.0.0","database":true}
+```
+
+#### Teardown
+
+```bash
+docker rm -f titanbay-app titanbay-db   # stop & remove containers
+docker network rm titanbay-net          # remove the network
+```
+
+To also remove the built image:
+
+```bash
+docker rmi titanbay-service
 ```
 
 ### Option B: Local Development (without Docker)
@@ -124,7 +195,7 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 
 > **What happens on startup:** The application automatically creates all required database tables (`funds`, `investors`, `investments`) if they don't already exist. This is handled by the `lifespan` function in `app/main.py`, which calls `SQLModel.metadata.create_all` against the configured database. You do **not** need to run any migrations or SQL scripts manually — just ensure the database and user from step 1 exist. If the database is unreachable at startup, the application will fail with a connection error.
 
-#### 5. Seed sample data (optional)
+#### 5. Seed sample data — local (optional)
 
 ```bash
 python -m app.seed
