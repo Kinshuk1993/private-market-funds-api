@@ -60,13 +60,35 @@ A comprehensive catalogue of the architectural and engineering decisions behind 
 
 2. **Request timing** — `X-Process-Time` header on every response. Requests exceeding 500ms are logged at `WARNING` level for latency monitoring without an external APM agent.
 
-3. **Health check with DB probe** — `GET /health` executes `SELECT 1` against the database. Returns `"degraded"` if the DB is unreachable — Kubernetes readiness probes can route traffic away from unhealthy pods.
+3. **Health check with DB + circuit breaker + cache stats** — `GET /health` executes `SELECT 1` against the database and reports circuit breaker state (`closed`/`open`/`half_open`) and cache statistics (`hits`, `misses`, `hit_rate`, `size`). Kubernetes readiness probes can route traffic away from unhealthy pods.
 
 4. **Graceful degraded mode** — If the database is unreachable on startup, the app starts anyway (with logged warnings) instead of crash-looping. This lets liveness probes pass while readiness probes report degraded status.
 
 5. **Exponential back-off on startup** — DB connection retries use exponential back-off (5 attempts, 2s → 4s → 8s → 16s) to handle slow container orchestration without hammering the database.
 
-6. **Structured logging** — Timestamp, level, logger name in every log line. Debug mode toggles SQL echo for development without code changes.
+6. **JSON structured logging with rotation** — Log files use `RotatingFileHandler` with configurable max size (10 MB default) and backup count (5 files). Log entries are JSON-structured (`JSONFormatter`) for machine parsing by ELK/Datadog/Splunk.  A separate `titanbay-error.log` captures only ERROR+ for alerting pipelines.  Console output uses ANSI-coloured human-readable format for local dev.  `DEBUG=true` toggles all loggers to DEBUG level including SQL echo.
+
+---
+
+## Resilience & Fault Tolerance
+
+1. **Circuit breaker on all database operations** — Every repository method is routed through a global `CircuitBreaker` instance.  After 5 consecutive connection failures (configurable via `CB_FAILURE_THRESHOLD`), the circuit opens and all subsequent calls fast-fail with `CircuitBreakerError` (→ 503 + `Retry-After` header) instead of timing out.  After `CB_RECOVERY_TIMEOUT` (30s default), a single probe is allowed through.  This prevents thread/connection exhaustion during a database outage and gives the DB time to recover.
+
+2. **Exponential backoff with jitter** — The `retry_with_backoff` decorator implements industry-standard retry logic: configurable max retries, base delay that doubles each attempt, cap on maximum delay, and random jitter (0–50% of delay) to prevent thundering-herd effects when multiple replicas retry simultaneously.
+
+3. **503 Service Unavailable + Retry-After header** — When the circuit breaker rejects a request, the API returns HTTP 503 with a `Retry-After` header containing the seconds until the circuit attempts recovery.  Well-behaved HTTP clients and load balancers honour this header, preventing retry storms.
+
+---
+
+## Caching
+
+1. **In-memory TTL cache (zero external dependencies)** — Read-heavy endpoints (`GET /funds`, `GET /investors`, `GET /funds/{id}/investments`) are cached in-memory with configurable TTL (30s default) and max size (1000 entries).  No Redis dependency — the same interface can be swapped to Redis/Memcached in a distributed deployment.
+
+2. **Write-through invalidation** — Every mutation (POST/PUT) invalidates all cache entries matching the entity's prefix (`funds:`, `investors:`, `investments:`), ensuring subsequent reads fetch fresh data from the database.  This bounds the staleness window to zero after any write.
+
+3. **FIFO eviction at max size** — When the cache reaches `CACHE_MAX_SIZE`, the oldest entry is evicted (FIFO via Python dict insertion order). This prevents unbounded memory growth without the complexity of LRU.
+
+4. **Configurable toggle** — `CACHE_ENABLED=false` disables caching entirely for load tests, debugging stale data, or environments where consistency is more critical than latency.
 
 ---
 
