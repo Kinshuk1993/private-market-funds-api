@@ -4,7 +4,7 @@
 
 ## Architecture
 
-```bash
+```text
 app/
 ├── main.py                 # FastAPI app, lifespan, middleware
 ├── seed.py                 # Sample data seeder (idempotent)
@@ -56,234 +56,83 @@ app/
 | Validation | Pydantic v2 |
 | Container | Docker (multi-stage build) |
 
-> **Database Design & Scalability:** For a deep-dive into schema design decisions,
-> index strategy, query analysis, and a scaling playbook from 10K to 1B+ records,
-> see [DATABASE_DESIGN.md](DATABASE_DESIGN.md).
+## Documentation
+
+| Document | Description |
+| -------- | ----------- |
+| [API Reference](docs/API_REFERENCE.md) | Every endpoint, request/response schema, status code, and business rule |
+| [API Examples](docs/API_EXAMPLES.md) | Sample curl requests & responses for all 8 endpoints |
+| [Edge Cases](docs/EDGE_CASES.md) | Comprehensive edge-case test scenarios (28+ cases) |
+| [Database Design](docs/DATABASE_DESIGN.md) | Schema design, index strategy, query analysis, scaling playbook |
+| [Docker Setup](docs/SETUP_DOCKER.md) | Full Docker walkthrough (steps 1-6, teardown, one-command test) |
+| [Local Setup](docs/SETUP_LOCAL.md) | Local dev prerequisites, venv, DB creation, one-command test |
 
 ## Quick Start
 
 ### Option A: Docker (Recommended)
 
-> **No local PostgreSQL required.** Both the app and the database run as Docker containers
-> on a shared network. This is also easily portable to Kubernetes for testing.
-
-#### Prerequisites
-
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Windows / macOS) or Docker Engine (Linux)
-
-#### 1. Create a Docker network
-
-A user-defined bridge network lets the two containers resolve each other by name:
+Full step-by-step instructions: **[docs/SETUP_DOCKER.md](docs/SETUP_DOCKER.md)**
 
 ```bash
 docker network create titanbay-net
-```
 
-#### 2. Start PostgreSQL
+docker run -d --name titanbay-db --network titanbay-net \
+  -e POSTGRES_USER=titanbay_user -e POSTGRES_PASSWORD=titanbay_password \
+  -e POSTGRES_DB=titanbay_db -p 5432:5432 postgres:15-alpine
 
-```bash
-docker run -d \
-  --name titanbay-db \
-  --network titanbay-net \
-  -e POSTGRES_USER=titanbay_user \
-  -e POSTGRES_PASSWORD=titanbay_password \
-  -e POSTGRES_DB=titanbay_db \
-  -p 5432:5432 \
-  postgres:15-alpine
-```
-
-> `-p 5432:5432` is optional — it exposes Postgres to the host for debugging with tools like `psql` or pgAdmin. The app container connects via the Docker network, not the host port.
-
-#### 3. Build the app image
-
-```bash
 cd titanbay-service
 docker build -t titanbay-service .
-```
 
-#### 4. Run the app
-
-```bash
-docker run -d \
-  --name titanbay-app \
-  --network titanbay-net \
-  -p 8000:8000 \
-  -e POSTGRES_USER=titanbay_user \
-  -e POSTGRES_PASSWORD=titanbay_password \
-  -e POSTGRES_SERVER=titanbay-db \
-  -e POSTGRES_DB=titanbay_db \
-  -e POSTGRES_PORT=5432 \
+docker run -d --name titanbay-app --network titanbay-net -p 8000:8000 \
+  -e POSTGRES_USER=titanbay_user -e POSTGRES_PASSWORD=titanbay_password \
+  -e POSTGRES_SERVER=titanbay-db -e POSTGRES_DB=titanbay_db -e POSTGRES_PORT=5432 \
   titanbay-service
-```
 
-> `POSTGRES_SERVER=titanbay-db` uses the container name — Docker DNS resolves it within the `titanbay-net` network.
-
-The app will auto-create all database tables on first startup. Verify with:
-
-```bash
-docker logs titanbay-app
-# Expected: "Database tables ready" followed by "Uvicorn running on http://0.0.0.0:8000"
-```
-
-#### 5. Seed sample data (optional)
-
-```bash
-docker exec titanbay-app python -m app.seed
-```
-
-#### 6. Verify
-
-```bash
 curl http://localhost:8000/health
-# {"status":"ok","version":"1.0.0","database":true}
 ```
 
-#### Teardown
-
-```bash
-docker rm -f titanbay-app titanbay-db   # stop & remove containers
-docker network rm titanbay-net          # remove the network
-```
-
-To also remove the built image:
-
-```bash
-docker rmi titanbay-service
-```
-
-#### One-Command Test (Docker)
-
-Instead of running steps 1-6 manually, you can use the automated test script.
-It starts PostgreSQL + the app in Docker, runs **42 curl tests** (happy-path + edge-cases)
-against all 8 endpoints, captures output to `logs/docker_test.log`, and tears everything down:
+Or run all 42 tests in one command:
 
 ```bash
 bash scripts/test_docker.sh
 ```
 
-> **Windows (Git Bash):** `"C:\Program Files\Git\bin\bash.exe" scripts/test_docker.sh`
+### Option B: Local Development
 
-**No manual prompts — fully automatic.** All database credentials are passed via
-Docker environment variables (`-e`). The script never calls `psql` or asks for any
-passwords. It creates the containers, waits for them to be healthy, runs every test,
-prints a pass/fail summary, and tears down. Zero interaction required.
-
-> **Production safety:** The Docker test uses an isolated database named `titanbay_db_test`
-> inside ephemeral containers — your production `titanbay_db` is never touched.
-
-### Option B: Local Development (without Docker)
-
-#### Local Setup Prerequisites
-
-- **Python 3.14+** installed
-- **PostgreSQL 15+** installed and **running** locally. The application **will not start** without a reachable PostgreSQL instance — it connects to the database during startup to create tables.
-  - **Windows:** Install from <https://www.postgresql.org/download/windows/> or via `winget install PostgreSQL.PostgreSQL`. After installation, ensure the PostgreSQL service is running (check *Services* or run `pg_isready`).
-  - **macOS:** `brew install postgresql@16 && brew services start postgresql@16`
-  - **Linux:** `sudo apt install postgresql` (or equivalent for your distro) and `sudo systemctl start postgresql`
-- **PostgreSQL superuser credentials** — You need to know the password for the `postgres` superuser (set during installation) to create the application database and user in the next step.
-
-#### 1. Create the database and user
-
-Connect to PostgreSQL using the `postgres` superuser and create the application database:
+Full step-by-step instructions: **[docs/SETUP_LOCAL.md](docs/SETUP_LOCAL.md)**
 
 ```bash
 psql -U postgres -h 127.0.0.1 -c "CREATE USER titanbay_user WITH PASSWORD 'titanbay_password';"
 psql -U postgres -h 127.0.0.1 -c "CREATE DATABASE titanbay_db OWNER titanbay_user;"
-```
 
-> **Note:** You will be prompted for the `postgres` superuser password. If you haven't set one, refer to your OS-specific PostgreSQL installation docs to configure it.
-
-#### 2. Set up virtual environment and install dependencies
-
-```bash
 cd titanbay-service
-python -m venv venv
-source venv/bin/activate        # Linux/macOS
-# or: source venv/Scripts/activate  # Git Bash on Windows
-
+python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-```
-
-#### 3. Configure environment
-
-```bash
 cp .env.example .env
-# Edit .env — set POSTGRES_SERVER=127.0.0.1 for local development
-```
-
-#### 4. Start the application
-
-```bash
 uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-> **What happens on startup:** The application automatically creates all required database tables (`funds`, `investors`, `investments`) if they don't already exist. This is handled by the `lifespan` function in `app/main.py`, which calls `SQLModel.metadata.create_all` against the configured database. You do **not** need to run any migrations or SQL scripts manually — just ensure the database and user from step 1 exist. If the database is unreachable at startup, the application will fail with a connection error.
-
-#### 5. Seed sample data — local (optional)
+Or run all 42 tests in one command:
 
 ```bash
-python -m app.seed
-```
-
-> **What the seed does:** The seed script inserts sample funds, investors, and investments into the database for development and demo purposes. It is **completely optional** — the application works fine without it. If you skip seeding, API endpoints like `GET /funds` will return empty arrays (`[]`) until you create data via the `POST` endpoints. The seed is idempotent: running it multiple times will not create duplicate records.
-
-#### One-Command Test (Local)
-
-Instead of running steps 1-5 manually, you can use the automated test script.
-It checks PostgreSQL connectivity, sets up the venv, starts uvicorn, runs **42 curl tests**
-(happy-path + edge-cases) against all 8 endpoints, captures output to `logs/local_test.log`,
-and stops the server on exit:
-
-```bash
-bash scripts/test_local.sh
-```
-
-> **Windows (Git Bash):** `"C:\Program Files\Git\bin\bash.exe" scripts/test_local.sh`
-> **Production safety:** The local test uses an isolated database named `titanbay_db_test` —
-> your production `titanbay_db` is **never** touched. The script temporarily writes a
-> test `.env` (pointing at `titanbay_db_test`), and restores the original `.env` on exit.
-
-**Will it prompt for a password?** No — the script **never** opens an interactive prompt.
-Here is how it works depending on your database state:
-
-| Scenario | What happens | Action needed |
-| -------- | ------------ | ------------- |
-| Test DB (`titanbay_db_test`) + user already exist | Script connects, truncates test tables, runs tests. **Fully automatic.** | None |
-| Test DB doesn't exist, you provide `-p` flag | Script uses the postgres superuser to create `titanbay_db_test`. **Fully automatic.** | Pass `-p` (see below) |
-| Test DB doesn't exist, no `-p` flag | Script prints clear setup instructions and **exits immediately** (does not hang). | Either use `-p` or create the DB manually (see below) |
-
-**First-time setup** — provide the PostgreSQL superuser password via the `-p` flag:
-
-```bash
-# Linux / macOS
 bash scripts/test_local.sh -p <your_postgres_password>
-
-# Windows (Git Bash)
-"C:\Program Files\Git\bin\bash.exe" scripts/test_local.sh -p <your_postgres_password>
 ```
 
-Or create the test database manually (one-time), then run without `-p`:
-
-```bash
-psql -U postgres -h 127.0.0.1 -c "CREATE DATABASE titanbay_db_test OWNER titanbay_user;"
-bash scripts/test_local.sh
-```
-
-Once the test database exists (after the first successful run or manual creation),
-the `-p` flag is never needed again — every subsequent run is fully automatic with zero
-interaction.
-
-### 3. Open the docs
+### Open the docs
 
 | URL | Description |
 | --- | ----------- |
-| <http://localhost:8000/docs> | Swagger UI (interactive) |
-| <http://localhost:8000/redoc> | ReDoc (read-only reference docs) |
-| <http://localhost:8000/health> | Liveness probe |
+| <http://localhost:8000/docs> | **Swagger UI** — interactive explorer, lets you try endpoints from the browser |
+| <http://localhost:8000/redoc> | **ReDoc** — polished read-only reference (three-panel layout) |
+| <http://localhost:8000/health> | Liveness / readiness probe with DB connectivity check |
+
+> Both `/docs` and `/redoc` are auto-generated by FastAPI from the OpenAPI schema — they stay in sync with the code at zero maintenance cost. Swagger UI is for developers testing endpoints; ReDoc is for stakeholders who want a clean reference view.
 
 ## API Endpoints
 
 All endpoints are prefixed with `/api/v1`.
+For detailed schemas, status codes, and business rules, see **[API Reference](docs/API_REFERENCE.md)**.
+For curl examples, see **[API Examples](docs/API_EXAMPLES.md)**.
 
 ### Funds
 
@@ -308,352 +157,6 @@ All endpoints are prefixed with `/api/v1`.
 | GET | `/funds/{fund_id}/investments` | List investments for a fund |
 | POST | `/funds/{fund_id}/investments` | Create a new investment |
 
-## Sample Requests & Responses
-
-> All examples use `curl`. Replace `localhost:8000` with your host if different.
-> UUIDs in responses will differ — the ones below are illustrative.
-
----
-
-### POST /api/v1/funds — Create a fund
-
-**Happy path (201 Created):**
-
-```bash
-curl -s -X POST http://localhost:8000/api/v1/funds \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Titanbay Growth Fund II",
-    "vintage_year": 2025,
-    "target_size_usd": 500000000.00,
-    "status": "Fundraising"
-  }'
-```
-
-```json
-{
-  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-  "name": "Titanbay Growth Fund II",
-  "vintage_year": 2025,
-  "target_size_usd": 500000000.0,
-  "status": "Fundraising",
-  "created_at": "2025-02-16T12:00:00Z"
-}
-```
-
-**Error path (422 Validation Error) — missing required field:**
-
-```bash
-curl -s -X POST http://localhost:8000/api/v1/funds \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Bad Fund",
-    "vintage_year": 2025
-  }'
-```
-
-```json
-{
-  "error": true,
-  "message": "Validation failed",
-  "details": [
-    { "field": "body -> target_size_usd", "message": "Field required" }
-  ]
-}
-```
-
----
-
-### GET /api/v1/funds — List all funds
-
-**Happy path (200 OK):**
-
-```bash
-curl -s http://localhost:8000/api/v1/funds
-```
-
-```json
-[
-  {
-    "id": "550e8400-e29b-41d4-a716-446655440000",
-    "name": "Titanbay Growth Fund I",
-    "vintage_year": 2024,
-    "target_size_usd": 250000000.0,
-    "status": "Fundraising",
-    "created_at": "2024-01-15T10:30:00Z"
-  }
-]
-```
-
-> Returns `[]` if no funds exist yet.
-
-**Error path (422 Validation Error) — invalid query parameter:**
-
-```bash
-curl -s "http://localhost:8000/api/v1/funds?limit=-1"
-```
-
-```json
-{
-  "error": true,
-  "message": "Validation failed",
-  "details": [
-    { "field": "query -> limit", "message": "Input should be greater than or equal to 1" }
-  ]
-}
-```
-
----
-
-### GET /api/v1/funds/{id} — Get a specific fund
-
-**Happy path (200 OK):**
-
-```bash
-curl -s http://localhost:8000/api/v1/funds/550e8400-e29b-41d4-a716-446655440000
-```
-
-```json
-{
-  "id": "550e8400-e29b-41d4-a716-446655440000",
-  "name": "Titanbay Growth Fund I",
-  "vintage_year": 2024,
-  "target_size_usd": 250000000.0,
-  "status": "Fundraising",
-  "created_at": "2024-01-15T10:30:00Z"
-}
-```
-
-**Error path (404 Not Found) — fund does not exist:**
-
-```bash
-curl -s http://localhost:8000/api/v1/funds/00000000-0000-0000-0000-000000000000
-```
-
-```json
-{
-  "error": true,
-  "message": "Fund with id '00000000-0000-0000-0000-000000000000' not found"
-}
-```
-
----
-
-### PUT /api/v1/funds — Update a fund
-
-**Happy path (200 OK):**
-
-```bash
-curl -s -X PUT http://localhost:8000/api/v1/funds \
-  -H "Content-Type: application/json" \
-  -d '{
-    "id": "550e8400-e29b-41d4-a716-446655440000",
-    "name": "Titanbay Growth Fund I",
-    "vintage_year": 2024,
-    "target_size_usd": 300000000.00,
-    "status": "Investing"
-  }'
-```
-
-```json
-{
-  "id": "550e8400-e29b-41d4-a716-446655440000",
-  "name": "Titanbay Growth Fund I",
-  "vintage_year": 2024,
-  "target_size_usd": 300000000.0,
-  "status": "Investing",
-  "created_at": "2024-01-15T10:30:00Z"
-}
-```
-
-**Error path (404 Not Found) — fund id does not exist:**
-
-```bash
-curl -s -X PUT http://localhost:8000/api/v1/funds \
-  -H "Content-Type: application/json" \
-  -d '{
-    "id": "00000000-0000-0000-0000-000000000000",
-    "name": "Ghost Fund",
-    "vintage_year": 2024,
-    "target_size_usd": 100000000.00,
-    "status": "Fundraising"
-  }'
-```
-
-```json
-{
-  "error": true,
-  "message": "Fund with id '00000000-0000-0000-0000-000000000000' not found"
-}
-```
-
----
-
-### POST /api/v1/investors — Create an investor
-
-**Happy path (201 Created):**
-
-```bash
-curl -s -X POST http://localhost:8000/api/v1/investors \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "CalPERS",
-    "investor_type": "Institution",
-    "email": "privateequity@calpers.ca.gov"
-  }'
-```
-
-```json
-{
-  "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
-  "name": "CalPERS",
-  "investor_type": "Institution",
-  "email": "privateequity@calpers.ca.gov",
-  "created_at": "2025-02-16T12:05:00Z"
-}
-```
-
-**Error path (409 Conflict) — duplicate email:**
-
-```bash
-curl -s -X POST http://localhost:8000/api/v1/investors \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "CalPERS Duplicate",
-    "investor_type": "Institution",
-    "email": "privateequity@calpers.ca.gov"
-  }'
-```
-
-```json
-{
-  "error": true,
-  "message": "An investor with email 'privateequity@calpers.ca.gov' already exists"
-}
-```
-
----
-
-### GET /api/v1/investors — List all investors
-
-**Happy path (200 OK):**
-
-```bash
-curl -s http://localhost:8000/api/v1/investors
-```
-
-```json
-[
-  {
-    "id": "770e8400-e29b-41d4-a716-446655440002",
-    "name": "Goldman Sachs Asset Management",
-    "investor_type": "Institution",
-    "email": "investments@gsam.com",
-    "created_at": "2024-02-10T09:15:00Z"
-  }
-]
-```
-
-> Returns `[]` if no investors exist yet.
-
-**Error path (422 Validation Error) — invalid query parameter:**
-
-```bash
-curl -s "http://localhost:8000/api/v1/investors?skip=-5"
-```
-
-```json
-{
-  "error": true,
-  "message": "Validation failed",
-  "details": [
-    { "field": "query -> skip", "message": "Input should be greater than or equal to 0" }
-  ]
-}
-```
-
----
-
-### POST /api/v1/funds/{fund_id}/investments — Create an investment
-
-**Happy path (201 Created):**
-
-```bash
-curl -s -X POST http://localhost:8000/api/v1/funds/550e8400-e29b-41d4-a716-446655440000/investments \
-  -H "Content-Type: application/json" \
-  -d '{
-    "investor_id": "770e8400-e29b-41d4-a716-446655440002",
-    "amount_usd": 75000000.00,
-    "investment_date": "2024-09-22"
-  }'
-```
-
-```json
-{
-  "id": "c3d4e5f6-a7b8-9012-cdef-123456789012",
-  "fund_id": "550e8400-e29b-41d4-a716-446655440000",
-  "investor_id": "770e8400-e29b-41d4-a716-446655440002",
-  "amount_usd": 75000000.0,
-  "investment_date": "2024-09-22"
-}
-```
-
-**Error path (422 Business Rule Violation) — fund is closed:**
-
-```bash
-curl -s -X POST http://localhost:8000/api/v1/funds/220e8400-e29b-41d4-a716-446655440020/investments \
-  -H "Content-Type: application/json" \
-  -d '{
-    "investor_id": "770e8400-e29b-41d4-a716-446655440002",
-    "amount_usd": 10000000.00,
-    "investment_date": "2024-09-22"
-  }'
-```
-
-```json
-{
-  "error": true,
-  "message": "Cannot invest in fund 'Titanbay Venture Fund I' — status is Closed"
-}
-```
-
----
-
-### GET /api/v1/funds/{fund_id}/investments — List investments for a fund
-
-**Happy path (200 OK):**
-
-```bash
-curl -s http://localhost:8000/api/v1/funds/550e8400-e29b-41d4-a716-446655440000/investments
-```
-
-```json
-[
-  {
-    "id": "990e8400-e29b-41d4-a716-446655440004",
-    "fund_id": "550e8400-e29b-41d4-a716-446655440000",
-    "investor_id": "770e8400-e29b-41d4-a716-446655440002",
-    "amount_usd": 50000000.0,
-    "investment_date": "2024-03-15"
-  }
-]
-```
-
-> Returns `[]` if the fund has no investments.
-
-**Error path (404 Not Found) — fund does not exist:**
-
-```bash
-curl -s http://localhost:8000/api/v1/funds/00000000-0000-0000-0000-000000000000/investments
-```
-
-```json
-{
-  "error": true,
-  "message": "Fund with id '00000000-0000-0000-0000-000000000000' not found"
-}
-```
-
 ## Key Design Decisions
 
 1. **PUT /funds with id in body** — The API spec shows `PUT /funds` with the `id` included in the JSON body rather than the URL path.  We follow the spec exactly.
@@ -672,26 +175,7 @@ curl -s http://localhost:8000/api/v1/funds/00000000-0000-0000-0000-000000000000/
 
 ## Error Response Format
 
-All errors follow a consistent JSON structure:
-
-```json
-{
-  "error": true,
-  "message": "Human-readable description"
-}
-```
-
-Validation errors (422) include additional detail:
-
-```json
-{
-  "error": true,
-  "message": "Validation failed",
-  "details": [
-    { "field": "body -> vintage_year", "message": "..." }
-  ]
-}
-```
+All errors follow a consistent JSON envelope. See **[API Reference → Common Response Envelopes](docs/API_REFERENCE.md#common-response-envelopes)** for the full specification and **[API Reference → Global Error Handling](docs/API_REFERENCE.md#global-error-handling)** for a complete status-code matrix.
 
 ## Environment Variables
 

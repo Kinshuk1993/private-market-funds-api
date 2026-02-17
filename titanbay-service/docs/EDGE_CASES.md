@@ -3,6 +3,8 @@
 > All edge cases were tested against a **clean database** (no seed data) with tables auto-created on startup.
 > Every request uses `curl`. Replace `localhost:8000` with your host if different.
 
+[← Back to README](../README.md)
+
 ---
 
 ## Table of Contents
