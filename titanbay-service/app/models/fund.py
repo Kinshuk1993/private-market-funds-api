@@ -10,7 +10,7 @@ from decimal import Decimal
 from enum import Enum
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import DateTime
+from sqlalchemy import CheckConstraint, DateTime
 from sqlmodel import Field, Relationship, SQLModel
 
 if TYPE_CHECKING:
@@ -36,6 +36,18 @@ class Fund(SQLModel, table=True):
     """
 
     __tablename__ = "funds"  # type: ignore[assignment]
+
+    # ── DB-level CHECK constraints ──
+    # Defence-in-depth: these enforce data integrity even if the Pydantic
+    # validation layer is bypassed (e.g. direct SQL, admin scripts, seed data).
+    # Note: ``status`` is NOT check-constrained here because SQLAlchemy creates
+    # a native PostgreSQL ENUM type (``fundstatus``) which already rejects
+    # invalid values at the DB level — a CHECK constraint would conflict.
+    __table_args__ = (
+        CheckConstraint("target_size_usd > 0", name="ck_funds_target_size_positive"),
+        CheckConstraint("vintage_year >= 1900", name="ck_funds_vintage_year_min"),
+        CheckConstraint("char_length(name) > 0", name="ck_funds_name_not_empty"),
+    )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     name: str = Field(index=True, max_length=255)

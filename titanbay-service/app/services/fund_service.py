@@ -12,8 +12,10 @@ import logging
 from typing import List
 from uuid import UUID
 
-from app.core.exceptions import NotFoundException
-from app.models.fund import Fund
+from sqlalchemy.exc import IntegrityError
+
+from app.core.exceptions import BusinessRuleViolation, NotFoundException
+from app.models.fund import Fund, FundStatus
 from app.repositories.fund_repo import FundRepository
 from app.schemas.fund import FundCreate, FundUpdate
 
@@ -46,9 +48,21 @@ class FundService:
     # ── Commands ──
 
     async def create_fund(self, fund_in: FundCreate) -> Fund:
-        """Create a new fund from validated input."""
+        """
+        Create a new fund from validated input.
+
+        Catches ``IntegrityError`` from DB-level CHECK constraint violations
+        (e.g. target_size_usd <= 0 bypassing Pydantic) and surfaces a clean 422.
+        """
         fund = Fund(**fund_in.model_dump())
-        created = await self._repo.create(fund)
+        try:
+            created = await self._repo.create(fund)
+        except IntegrityError as exc:
+            await self._repo.db.rollback()
+            logger.warning("IntegrityError creating fund: %s", exc)
+            raise BusinessRuleViolation(
+                "Fund data violates a database constraint. Check all fields."
+            )
         logger.info("Created fund %s (%s)", created.id, created.name)
         return created
 
@@ -60,16 +74,58 @@ class FundService:
         mutable fields.  This is a PUT semantic (full replace), not PATCH.
 
         Raises :class:`NotFoundException` if the fund does not exist.
+        Raises :class:`BusinessRuleViolation` for invalid status transitions
+        or DB constraint violations.
         """
         fund = await self._repo.get(fund_update.id)
         if not fund:
             raise NotFoundException("Fund", fund_update.id)
+
+        # ── Status transition validation ──
+        # Enforce a one-way lifecycle: Fundraising → Investing → Closed.
+        # Re-opening a closed fund is never valid; going backwards is forbidden.
+        _validate_status_transition(fund.status, fund_update.status)
 
         # Apply all fields from the update payload (excluding id, which is immutable)
         update_data = fund_update.model_dump(exclude={"id"})
         for key, value in update_data.items():
             setattr(fund, key, value)
 
-        updated = await self._repo.update(fund)
+        try:
+            updated = await self._repo.update(fund)
+        except IntegrityError as exc:
+            await self._repo.db.rollback()
+            logger.warning("IntegrityError updating fund %s: %s", fund_update.id, exc)
+            raise BusinessRuleViolation(
+                "Fund update violates a database constraint. Check all fields."
+            )
         logger.info("Updated fund %s", updated.id)
         return updated
+
+
+# ── Status transition rules ──
+
+# Allowed transitions: only forward movement through the lifecycle.
+_ALLOWED_TRANSITIONS: dict[FundStatus, set[FundStatus]] = {
+    FundStatus.FUNDRAISING: {
+        FundStatus.FUNDRAISING,
+        FundStatus.INVESTING,
+        FundStatus.CLOSED,
+    },
+    FundStatus.INVESTING: {FundStatus.INVESTING, FundStatus.CLOSED},
+    FundStatus.CLOSED: {FundStatus.CLOSED},  # terminal state — no going back
+}
+
+
+def _validate_status_transition(current: FundStatus, requested: FundStatus) -> None:
+    """
+    Enforce one-way fund lifecycle transitions.
+
+    Fundraising → Investing → Closed.  Moving backwards (e.g. Closed → Fundraising)
+    raises a :class:`BusinessRuleViolation`.
+    """
+    if requested not in _ALLOWED_TRANSITIONS.get(current, set()):
+        raise BusinessRuleViolation(
+            f"Invalid status transition: '{current.value}' → '{requested.value}'. "
+            f"Fund lifecycle is Fundraising → Investing → Closed (one-way)."
+        )

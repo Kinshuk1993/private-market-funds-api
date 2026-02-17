@@ -18,8 +18,11 @@
   - [Why UUID Primary Keys?](#why-uuid-primary-keys)
   - [Why DECIMAL(20,2) for Currency?](#why-decimal202-for-currency)
   - [Why TIMESTAMPTZ for Timestamps?](#why-timestamptz-for-timestamps)
-  - [Why Enum Columns as VARCHAR?](#why-enum-columns-as-varchar)
+  - [Why Native PostgreSQL ENUM Types?](#why-native-postgresql-enum-types)
   - [Why No Soft Deletes?](#why-no-soft-deletes)
+  - [Why DB-Level CHECK Constraints?](#why-db-level-check-constraints)
+  - [Why Explicit ON DELETE RESTRICT?](#why-explicit-on-delete-restrict)
+  - [Fund Status Lifecycle Enforcement](#fund-status-lifecycle-enforcement)
 - [Index Strategy](#index-strategy)
   - [Index Inventory](#index-inventory)
   - [The Hottest Query: Investments by Fund](#the-hottest-query-investments-by-fund)
@@ -34,6 +37,10 @@
   - [SELECT COUNT(*) — Pagination Metadata](#select-count--pagination-metadata)
 - [Connection Pool Architecture](#connection-pool-architecture)
 - [Concurrency & Race Conditions](#concurrency--race-conditions)
+  - [Duplicate Email (TOCTOU Race)](#duplicate-email-toctou-race)
+  - [Closed Fund Investment Race](#closed-fund-investment-race)
+  - [IntegrityError Handling Pattern](#integrityerror-handling-pattern)
+  - [OperationalError Safety](#operationalerror-safety)
 - [Scaling Playbook (10K → 1B+ Records)](#scaling-playbook-10k--1b-records)
   - [Phase 1: Single-Node Optimization (Now)](#phase-1-single-node-optimization-now)
   - [Phase 2: Read Replicas (100K+ Users)](#phase-2-read-replicas-100k-users)
@@ -91,9 +98,11 @@
 | `id` | `UUID` | `PRIMARY KEY` | B-tree (PK) | Generated via `uuid4()` in app layer |
 | `name` | `VARCHAR(255)` | `NOT NULL` | B-tree | Indexed for listing & search |
 | `vintage_year` | `INTEGER` | `NOT NULL` | B-tree | Year fund was established; indexed for filtering |
-| `target_size_usd` | `DECIMAL(20,2)` | `NOT NULL` | — | Precise currency; never `FLOAT` |
-| `status` | `VARCHAR` | `NOT NULL DEFAULT 'Fundraising'` | — | Enum: `Fundraising`, `Investing`, `Closed` |
+| `target_size_usd` | `DECIMAL(20,2)` | `NOT NULL, CHECK > 0` | — | Precise currency; never `FLOAT` |
+| `status` | `ENUM (fundstatus)` | `NOT NULL DEFAULT 'Fundraising'` | — | Native PG ENUM: `Fundraising`, `Investing`, `Closed` |
 | `created_at` | `TIMESTAMPTZ` | `NOT NULL` | B-tree | UTC timestamp; indexed for temporal queries |
+
+**CHECK constraints:** `target_size_usd > 0`, `vintage_year >= 1900`, `char_length(name) > 0` — enforced at DB level for defence-in-depth (see [Why DB-Level CHECK Constraints?](#why-db-level-check-constraints)).
 
 **Row estimate at scale:** Thousands (funds are created infrequently). This table will never be a bottleneck.
 
@@ -103,9 +112,11 @@
 | ------ | ---- | ----------- | ----- | ----- |
 | `id` | `UUID` | `PRIMARY KEY` | B-tree (PK) | Generated via `uuid4()` |
 | `name` | `VARCHAR(255)` | `NOT NULL` | B-tree | Indexed for listing & search |
-| `investor_type` | `VARCHAR` | `NOT NULL` | — | Enum: `Individual`, `Institution`, `Family Office` |
+| `investor_type` | `ENUM (investortype)` | `NOT NULL` | — | Native PG ENUM: `Individual`, `Institution`, `Family Office` |
 | `email` | `VARCHAR(320)` | `NOT NULL UNIQUE` | B-tree (unique) | RFC 5321 max email length; unique constraint doubles as index |
 | `created_at` | `TIMESTAMPTZ` | `NOT NULL` | B-tree | Indexed for temporal queries & cursor pagination |
+
+**CHECK constraints:** `char_length(name) > 0`, `char_length(email) > 0` — enforced at DB level for defence-in-depth.
 
 **Row estimate at scale:** Tens of thousands to millions. Email unique index is critical for duplicate detection under concurrency.
 
@@ -114,10 +125,14 @@
 | Column | Type | Constraints | Index | Notes |
 | ------ | ---- | ----------- | ----- | ----- |
 | `id` | `UUID` | `PRIMARY KEY` | B-tree (PK) | Generated via `uuid4()` |
-| `fund_id` | `UUID` | `NOT NULL FK → funds.id` | B-tree + composite | Individual index for joins; composite index for the hot query |
-| `investor_id` | `UUID` | `NOT NULL FK → investors.id` | B-tree | Indexed for investor portfolio lookups |
-| `amount_usd` | `DECIMAL(20,2)` | `NOT NULL` | — | Precise currency arithmetic |
+| `fund_id` | `UUID` | `NOT NULL FK → funds.id ON DELETE RESTRICT` | B-tree + composite | Individual index for joins; composite index for the hot query |
+| `investor_id` | `UUID` | `NOT NULL FK → investors.id ON DELETE RESTRICT` | B-tree | Indexed for investor portfolio lookups |
+| `amount_usd` | `DECIMAL(20,2)` | `NOT NULL, CHECK > 0` | — | Precise currency arithmetic |
 | `investment_date` | `DATE` | `NOT NULL` | Via composite | Part of `(fund_id, investment_date)` composite index |
+
+**CHECK constraints:** `amount_usd > 0` — enforced at DB level for defence-in-depth.
+
+**FK ON DELETE:** Both foreign keys use `RESTRICT` — you cannot delete a fund or investor that has investments (see [Why Explicit ON DELETE RESTRICT?](#why-explicit-on-delete-restrict)).
 
 **Row estimate at scale:** Hundreds of millions to billions. This is the high-volume table and the focus of our index strategy.
 
@@ -168,18 +183,21 @@ DECIMAL(20,2) can represent values from -999,999,999,999,999,999.99
 - PostgreSQL stores `TIMESTAMPTZ` as a 64-bit integer (microseconds since epoch) — same storage cost as `TIMESTAMP`, but correct under DST transitions.
 - Application layer generates `datetime.now(timezone.utc)` so the timestamp is always UTC regardless of the server's locale.
 
-### Why Enum Columns as VARCHAR?
+### Why Native PostgreSQL ENUM Types?
 
-We store `FundStatus` and `InvestorType` as `VARCHAR` rather than PostgreSQL's `CREATE TYPE ... AS ENUM`:
+SQLAlchemy automatically creates native PostgreSQL ENUM types (`fundstatus`, `investortype`) for Python `str, Enum` subclasses used in SQLModel field definitions. This provides DB-level type enforcement:
 
-| Factor | PostgreSQL ENUM | VARCHAR + app validation |
-| ------ | --------------- | ----------------------- |
-| Adding a new value | Requires `ALTER TYPE ... ADD VALUE` migration | Just update the Python enum — no migration |
+| Factor | Native PostgreSQL ENUM | VARCHAR + app validation |
+| ------ | ---------------------- | ----------------------- |
+| Adding a new value | Requires `ALTER TYPE ... ADD VALUE` migration | Just update the Python enum |
 | Removing a value | Not supported without recreating the type | Just update the Python enum |
-| Storage | 4 bytes (catalogue OID) | Variable (but short strings compress well) |
-| Validation | DB-level | App-level (Pydantic validates before INSERT) |
+| Storage | 4 bytes (catalogue OID) | Variable (typically 10-15 bytes) |
+| Validation | DB-level type enforcement | App-level only (Pydantic) |
+| CHECK constraint compatible | No — type mismatch with string literals | Yes |
 
-**Decision:** The flexibility of VARCHAR outweighs the ~10 bytes of extra storage per row. With Pydantic validating every request before it reaches the database, invalid values never enter the DB regardless.
+**Trade-off:** Native ENUM types are stricter (reject invalid values at the type system level, not just at the row level) but less flexible when the set of values changes. Since fund statuses and investor types change extremely rarely, the strictness is worth the migration cost.
+
+**Important caveat:** Because native ENUM types are used, a CHECK constraint like `status IN ('Fundraising', 'Investing', 'Closed')` **cannot** be applied — PostgreSQL cannot compare an ENUM value with string literals in a CHECK expression. The ENUM type itself provides equivalent validation.
 
 ### Why No Soft Deletes?
 
@@ -189,6 +207,58 @@ The current API spec does not include `DELETE` endpoints. The `delete()` method 
 2. **Index bloat:** Soft-deleted rows still occupy index space, degrading scan performance.
 3. **GDPR conflict:** "Deleted" data that persists violates data subject erasure rights.
 4. **Current spec doesn't need it:** YAGNI (You Aren't Gonna Need It). If needed later, it can be added via migration with a partial index on `deleted_at IS NULL`.
+
+### Why DB-Level CHECK Constraints?
+
+Pydantic validates every API request before it reaches the database. So why add CHECK constraints?
+
+**Defence-in-depth.** Pydantic guards the front door, but data can enter through other paths:
+
+- Admin scripts running direct SQL
+- Seed/migration scripts
+- Future microservices bypassing the API
+- Manual `psql` corrections during incidents
+
+If any of these paths insert `amount_usd = -500` or `vintage_year = 0`, the database itself must reject the data.
+
+| Table | Constraint | Prevents |
+| --- | --- | --- |
+| `funds` | `target_size_usd > 0` | Zero or negative fund sizes |
+| `funds` | `vintage_year >= 1900` | Nonsensical vintage years |
+| `funds` | `char_length(name) > 0` | Empty fund names |
+| `investors` | `char_length(name) > 0` | Empty investor names |
+| `investors` | `char_length(email) > 0` | Empty email addresses |
+| `investments` | `amount_usd > 0` | Zero or negative investments |
+
+**Why no CHECK on `status` / `investor_type`?** These columns use native PostgreSQL ENUM types (see [Why Native PostgreSQL ENUM Types?](#why-native-postgresql-enum-types)) which are stricter than CHECK constraints — they reject invalid values at the type level, not just the row level.
+
+### Why Explicit ON DELETE RESTRICT?
+
+Foreign keys on `investments.fund_id` and `investments.investor_id` use `ON DELETE RESTRICT`. PostgreSQL defaults to `NO ACTION` (functionally identical), but making it explicit:
+
+1. **Documents the intent** — a future developer sees immediately that deleting a fund/investor with investments is forbidden
+2. **Prevents accidental changes** — no one will assume `CASCADE` or add it without understanding the consequence (orphan financial records)
+3. **Self-documenting in the model** — the `ondelete="RESTRICT"` kwarg on each `Field()` is visible in the Python code, not buried in a migration
+
+### Fund Status Lifecycle Enforcement
+
+Fund status follows a **one-way lifecycle**: `Fundraising → Investing → Closed`.
+
+The `update_fund()` service method validates status transitions against an explicit transition matrix before persisting any changes:
+
+```text
+Fundraising → Fundraising ✓  (no-op)
+Fundraising → Investing   ✓
+Fundraising → Closed      ✓  (skip straight to closed)
+Investing   → Investing   ✓  (no-op)
+Investing   → Closed      ✓
+Closed      → Closed      ✓  (no-op)
+Closed      → Investing   ✗  → 422 Business Rule Violation
+Closed      → Fundraising ✗  → 422 Business Rule Violation
+Investing   → Fundraising ✗  → 422 Business Rule Violation
+```
+
+**Why not enforce at the DB level with a trigger?** A PostgreSQL trigger could enforce this, but it would couple business logic to the database engine, making it harder to test and reason about. Keeping the rule in the service layer means it's covered by unit tests and clearly visible in code review.
 
 ---
 
@@ -457,6 +527,28 @@ SELECT * FROM funds WHERE id = $1 FOR UPDATE;
 
 This is documented as a Phase 2 hardening step.
 
+### IntegrityError Handling Pattern
+
+All three services catch `IntegrityError` from SQLAlchemy to translate DB constraint violations into meaningful API responses. This handling lives in the **service layer** (not the repository) because different entities need different error messages and HTTP status codes:
+
+| Service | Trigger | Response | Rationale |
+| --- | --- | --- | --- |
+| `InvestorService` | Duplicate email (TOCTOU race on unique constraint) | `409 Conflict` | Client should retry with a different email |
+| `FundService` | CHECK constraint violation during create/update | `422 Business Rule Violation` | Invalid data bypassed Pydantic (race or direct DB access) |
+| `InvestmentService` | FK violation (fund/investor deleted between check and INSERT) | `422 Business Rule Violation` | A referenced entity disappeared mid-request |
+
+In every case, the session is explicitly rolled back before raising the domain exception, ensuring the connection is returned to the pool in a clean state.
+
+### OperationalError Safety
+
+The `BaseRepository` catches `OperationalError` (connection loss, deadlock, timeout) in all mutation methods (`create`, `update`, `delete`). On catch:
+
+1. The session is **rolled back** to prevent dirty-state leakage into the connection pool
+2. The error is **logged** with entity type context for debugging
+3. The exception is **re-raised** — handled by the global 500 catch-all handler
+
+`IntegrityError` is intentionally **not** caught in the repository — it propagates to the service layer where it receives domain-specific handling (see table above).
+
 ---
 
 ## Scaling Playbook (10K → 1B+ Records)
@@ -474,6 +566,11 @@ What's already in place:
 - [x] **Deterministic pagination** (ORDER BY PK) for stable results
 - [x] **Request-ID middleware** for distributed tracing readiness
 - [x] **DB retry with exponential backoff** on startup
+- [x] **DB-level CHECK constraints** on all numeric and string fields
+- [x] **Explicit ON DELETE RESTRICT** on foreign keys
+- [x] **Fund status lifecycle enforcement** (one-way transitions)
+- [x] **IntegrityError handling** in all service layers (investor 409, fund/investment 422)
+- [x] **OperationalError rollback safety** in the base repository layer
 
 Additional single-node tunings:
 
@@ -571,7 +668,7 @@ For extreme scale (global, multi-region):
 
 ## Summary
 
-The current schema is designed with **production correctness as the baseline** (UUIDs, DECIMAL currency, TIMESTAMPTZ, unique constraints, foreign keys) and **performance at scale as a deliberate extension path** (composite indexes, connection pooling, async I/O). The architecture follows a layered approach where each scaling phase builds on the previous one without requiring a rewrite:
+The current schema is designed with **production correctness as the baseline** (UUIDs, DECIMAL currency, TIMESTAMPTZ, unique constraints, foreign keys, CHECK constraints, ON DELETE RESTRICT) and **performance at scale as a deliberate extension path** (composite indexes, connection pooling, async I/O). Defence-in-depth is enforced at every layer: Pydantic validates API input, service-layer logic enforces business rules and catches constraint-violation races, and DB-level constraints reject invalid data regardless of the entry path. The architecture follows a layered approach where each scaling phase builds on the previous one without requiring a rewrite:
 
 1. **Now:** Single PostgreSQL instance with proper indexes and pooling handles thousands of concurrent users
 2. **Growth:** Read replicas and PgBouncer handle 100K+ concurrent users

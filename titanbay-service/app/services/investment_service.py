@@ -9,6 +9,8 @@ import logging
 from typing import List
 from uuid import UUID
 
+from sqlalchemy.exc import IntegrityError
+
 from app.core.exceptions import BusinessRuleViolation, NotFoundException
 from app.models.fund import FundStatus
 from app.models.investment import Investment
@@ -88,13 +90,29 @@ class InvestmentService:
             raise NotFoundException("Investor", invest_in.investor_id)
 
         # 4 ─ Persist
+        # IntegrityError catch handles TOCTOU races: if the fund or investor
+        # was deleted between our existence check and the INSERT, PostgreSQL's
+        # FK constraint fires and we translate it to a meaningful error.
         investment = Investment(
             fund_id=fund_id,
             investor_id=invest_in.investor_id,
             amount_usd=invest_in.amount_usd,
             investment_date=invest_in.investment_date,
         )
-        created = await self._invest_repo.create(investment)
+        try:
+            created = await self._invest_repo.create(investment)
+        except IntegrityError as exc:
+            await self._invest_repo.db.rollback()
+            logger.warning(
+                "IntegrityError creating investment (fund=%s, investor=%s): %s",
+                fund_id,
+                invest_in.investor_id,
+                exc,
+            )
+            raise BusinessRuleViolation(
+                "Investment could not be created — a referenced fund or investor "
+                "may have been removed, or a database constraint was violated."
+            )
         logger.info(
             "Created investment %s: investor %s → fund %s ($%s)",
             created.id,
