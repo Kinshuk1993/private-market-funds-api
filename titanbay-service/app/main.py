@@ -7,8 +7,8 @@ routers, and manages the application lifecycle (DB table creation on startup).
 
 import asyncio
 import logging
-from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,11 +18,11 @@ from sqlalchemy import text
 from sqlmodel import SQLModel
 
 from app.api.v1.api import api_router
+from app.core.cache import cache
 from app.core.config import settings
 from app.core.exceptions import add_exception_handlers
 from app.core.logging import setup_logging
 from app.core.resilience import db_circuit_breaker
-from app.core.cache import cache
 from app.db.session import AsyncSessionLocal, engine
 from app.middleware import RequestIDMiddleware, RequestTimingMiddleware
 
@@ -50,10 +50,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     Shutdown:
       - Disposes of the connection pool to release DB connections cleanly.
     """
-    # Import models so SQLModel.metadata knows about them
+    # Import models so SQLModel.metadata knows about them.
+    # SQLModel (and SQLAlchemy) only learns about table classes when their
+    # module is imported.  Without these imports, create_all() would create
+    # an empty database with no tables.
     import app.models.fund  # noqa: F401
-    import app.models.investor  # noqa: F401
     import app.models.investment  # noqa: F401
+    import app.models.investor  # noqa: F401
 
     max_retries = 5
     retry_delay = 2  # seconds (doubles each attempt)
@@ -68,8 +71,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         except Exception as exc:
             if attempt < max_retries:
                 logger.warning(
-                    "Database connection failed (attempt %d/%d): %s — "
-                    "retrying in %ds…",
+                    "Database connection failed (attempt %d/%d): %s — " "retrying in %ds…",
                     attempt,
                     max_retries,
                     exc,
@@ -87,7 +89,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     exc,
                 )
 
-    yield  # ← application is running
+    # asynccontextmanager protocol: everything above `yield` runs at startup,
+    # everything below it runs at shutdown.  FastAPI calls this as:
+    #   async with lifespan(app):  # startup
+    #       ... serve requests ...
+    #   # shutdown code runs after the `with` block exits
+    yield
 
     logger.info("Shutting down — disposing connection pool")
     await engine.dispose()
@@ -101,8 +108,7 @@ app = FastAPI(
     title=settings.PROJECT_NAME,
     version="1.0.0",
     description=(
-        "RESTful API for managing private market funds, investors, "
-        "and their investments."
+        "RESTful API for managing private market funds, investors, " "and their investments."
     ),
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
     redoc_url=None,  # Disabled default — custom route below uses a working CDN
@@ -122,9 +128,7 @@ async def custom_redoc_html():
 
 
 # ── Middleware (order matters: outermost = first to execute) ──
-# GZip compresses responses > 500 bytes — critical for reducing bandwidth
-# when serving millions of global users, especially on list endpoints
-# that return large JSON arrays.
+# GZip compresses responses > 500 bytes, reducing bandwidth on list endpoints.
 app.add_middleware(GZipMiddleware, minimum_size=500)
 
 # Request ID: injects/propagates X-Request-ID for distributed tracing

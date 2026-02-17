@@ -1,5 +1,5 @@
 """
-Pydantic schemas for Fund API request / response serialisation.
+Pydantic schemas for Fund API request / response serialization.
 
 Separating schemas from SQLModel table models keeps the API contract
 decoupled from the persistence layer (Interface Segregation Principle).
@@ -7,13 +7,11 @@ decoupled from the persistence layer (Interface Segregation Principle).
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
 from app.models.fund import FundStatus
-
 
 # ── Shared validation helpers ──
 
@@ -53,9 +51,7 @@ class FundBase(BaseModel):
     def validate_vintage_year(cls, v: int) -> int:
         """Vintage year must be a realistic calendar year."""
         if v < 1900 or v > _CURRENT_YEAR + 5:
-            raise ValueError(
-                f"vintage_year must be between 1900 and {_CURRENT_YEAR + 5}"
-            )
+            raise ValueError(f"vintage_year must be between 1900 and {_CURRENT_YEAR + 5}")
         return v
 
     @field_validator("name")

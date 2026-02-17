@@ -42,9 +42,7 @@ class InvestorService:
 
     # ── Queries ──
 
-    async def get_all_investors(
-        self, skip: int = 0, limit: int = 100
-    ) -> List[Investor]:
+    async def get_all_investors(self, skip: int = 0, limit: int = 100) -> List[Investor]:
         """Return a paginated list of investors (cache-backed)."""
         cache_key = f"{self.CACHE_PREFIX}list:{skip}:{limit}"
         cached = cache.get(cache_key)
@@ -73,9 +71,7 @@ class InvestorService:
         # Optimistic pre-check (fast path — catches 99.9% of duplicates)
         existing = await self._repo.get_by_email(str(investor_in.email))
         if existing:
-            raise ConflictException(
-                f"An investor with email '{investor_in.email}' already exists"
-            )
+            raise ConflictException(f"An investor with email '{investor_in.email}' already exists")
 
         investor = Investor(**investor_in.model_dump())
         try:
@@ -88,9 +84,7 @@ class InvestorService:
                 "IntegrityError caught for duplicate email '%s' (TOCTOU race)",
                 investor_in.email,
             )
-            raise ConflictException(
-                f"An investor with email '{investor_in.email}' already exists"
-            )
+            raise ConflictException(f"An investor with email '{investor_in.email}' already exists")
 
         cache.invalidate(self.CACHE_PREFIX)
         logger.info("Created investor %s (%s)", created.id, created.name)

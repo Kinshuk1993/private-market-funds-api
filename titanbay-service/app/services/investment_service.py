@@ -1,13 +1,9 @@
 """
-Investment service — business logic layer for investment (commitment) operations.
+Investment service — business logic for investment (commitment) operations.
 
-Contains the most critical business rule in the system: investments into
-*Closed* funds must be rejected.
+Key business rule: investments into *Closed* funds must be rejected.
 
-Caching:
-    Read operations (``get_investments_by_fund``) check the in-memory TTL
-    cache first.  Write operations (``create_investment``) invalidate all
-    ``investments:`` cache keys.
+Read operations are cache-backed; writes invalidate ``investments:``.
 """
 
 import logging
@@ -75,9 +71,7 @@ class InvestmentService:
 
     # ── Commands ──
 
-    async def create_investment(
-        self, fund_id: UUID, invest_in: InvestmentCreate
-    ) -> Investment:
+    async def create_investment(self, fund_id: UUID, invest_in: InvestmentCreate) -> Investment:
         """
         Record a new investment (capital commitment) into a fund.
 

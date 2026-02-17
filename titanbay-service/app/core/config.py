@@ -82,13 +82,11 @@ class Settings(BaseSettings):
 
     # ── Connection pool tuning ──
     # These govern the SQLAlchemy async engine pool.  Values below are
-    # reasonable defaults for a containerised deployment behind a load balancer.
+    # reasonable defaults for a containerized deployment behind a load balancer.
     DB_POOL_SIZE: int = 10
     DB_MAX_OVERFLOW: int = 20
     DB_POOL_TIMEOUT: int = 30  # seconds to wait for a connection from the pool
-    DB_POOL_RECYCLE: int = (
-        1800  # seconds before a connection is recycled (avoid stale conns)
-    )
+    DB_POOL_RECYCLE: int = 1800  # seconds before a connection is recycled (avoids stale conns)
 
     # ── CORS ──
     # Comma-separated list of allowed origins. "*" in dev, restrict in prod.

@@ -1,26 +1,19 @@
 """
-Resilience patterns for production reliability.
+Resilience patterns: Circuit Breaker and Retry with Exponential Backoff.
 
-Implements industry-standard fault-tolerance mechanisms:
-
-1. **Circuit Breaker** — Prevents cascading failures by short-circuiting
-   requests to a failing dependency (e.g. database) after a threshold of
-   consecutive failures.  After a cool down period, a single "probe" request
-   is allowed through to test recovery.
+1. **Circuit Breaker** — Short-circuits requests to a failing dependency
+   after a threshold of consecutive failures.  After a cool-down period,
+   a single "probe" request tests recovery.
 
    States:
-   - CLOSED  → Normal operation; failures are counted.
-   - OPEN    → All calls fail immediately (fast-fail); avoids hammering a
-               dead service, giving it time to recover.
-   - HALF_OPEN → A single probe call is allowed; if it succeeds the circuit
-                 closes, otherwise it re-opens.
+   - CLOSED    → Normal; failures are counted.
+   - OPEN      → All calls fail immediately (fast-fail).
+   - HALF_OPEN → One probe call allowed; success closes, failure re-opens.
 
-2. **Retry with Exponential Backoff** — Retries transient failures (e.g.
-   connection timeouts, deadlocks) with increasing delays and optional jitter
-   to avoid thundering-herd effects when many replicas retry simultaneously.
+2. **Retry with Exponential Backoff** — Retries transient failures with
+   increasing delays and optional jitter to avoid thundering-herd effects.
 
-Both patterns are implemented as decorators for clean, non-invasive
-integration with existing service and repository methods.
+Both are implemented as decorators wrapping service/repository methods.
 """
 
 import asyncio
@@ -29,7 +22,7 @@ import logging
 import random
 import time
 from enum import Enum
-from typing import Any, Callable, Optional, Set, Tuple, Type
+from typing import Any, Callable, Optional, Tuple, Type
 
 from app.core.config import settings
 
@@ -56,8 +49,7 @@ class CircuitBreakerError(Exception):
         self.name = name
         self.retry_after = retry_after
         super().__init__(
-            f"Circuit breaker '{name}' is OPEN — failing fast. "
-            f"Retry after {retry_after:.1f}s."
+            f"Circuit breaker '{name}' is OPEN — failing fast. " f"Retry after {retry_after:.1f}s."
         )
 
 
@@ -101,6 +93,10 @@ class CircuitBreaker:
         if self._state == CircuitState.OPEN:
             elapsed = time.monotonic() - self._last_failure_time
             if elapsed >= self.recovery_timeout:
+                # Side-effect: reading state triggers the OPEN → HALF_OPEN
+                # transition once the recovery timeout expires. This is
+                # intentional — the next call() will see HALF_OPEN and allow
+                # a single probe request through instead of fast-failing.
                 self._state = CircuitState.HALF_OPEN
                 logger.info(
                     "Circuit '%s' → HALF_OPEN (recovery timeout elapsed after %.1fs)",
@@ -150,19 +146,19 @@ class CircuitBreaker:
 
         Raises :class:`CircuitBreakerError` if the circuit is OPEN.
         """
-        state = self.state  # triggers OPEN → HALF_OPEN check
+        # Accessing .state here triggers the OPEN → HALF_OPEN check if the
+        # recovery timeout has elapsed (see the state property above).
+        state = self.state
 
         if state == CircuitState.OPEN:
-            retry_after = self.recovery_timeout - (
-                time.monotonic() - self._last_failure_time
-            )
+            retry_after = self.recovery_timeout - (time.monotonic() - self._last_failure_time)
             raise CircuitBreakerError(self.name, max(retry_after, 0))
 
         try:
             result = await func(*args, **kwargs)
             self._record_success()
             return result
-        except self.expected_exceptions as exc:
+        except self.expected_exceptions as exc:  # noqa: F841
             self._record_failure()
             raise
 
@@ -265,6 +261,8 @@ def retry_with_backoff(
                             exc,
                         )
 
+            # The loop always executes at least once (range(max_retries + 1)),
+            # so last_exception is guaranteed to be set if we reach this line.
             raise last_exception  # type: ignore[misc]
 
         return wrapper

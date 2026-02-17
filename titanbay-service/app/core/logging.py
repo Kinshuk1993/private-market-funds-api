@@ -12,10 +12,8 @@ Implements industry-standard practices:
 - **Request-ID correlation** — Logs include the request ID from middleware
   context for distributed tracing.
 
-Usage:
-    Call ``setup_logging()`` once during application startup (in ``main.py``).
-    All modules that call ``logging.getLogger(__name__)`` will automatically
-    inherit the configured handlers and formatters.
+Call ``setup_logging()`` once at startup; all modules using
+``logging.getLogger(__name__)`` inherit the configured handlers.
 """
 
 import json
@@ -24,14 +22,12 @@ import os
 import sys
 from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from app.core.config import settings
 
 # ── Log directory — created relative to the project root ──
-LOG_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "logs"
-)
+LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "logs")
 
 
 class JSONFormatter(logging.Formatter):
@@ -53,9 +49,7 @@ class JSONFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         log_entry: Dict[str, Any] = {
-            "timestamp": datetime.fromtimestamp(
-                record.created, tz=timezone.utc
-            ).isoformat(),
+            "timestamp": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),

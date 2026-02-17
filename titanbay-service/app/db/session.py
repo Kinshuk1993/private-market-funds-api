@@ -19,8 +19,9 @@ from app.core.config import settings
 # ── Engine creation (PostgreSQL or SQLite) ──
 if settings.USE_SQLITE:
     # In-memory SQLite for zero-dependency testing.
-    # StaticPool ensures every connection shares the SAME in-memory database;
-    # without it each connection would get its own empty database.
+    # StaticPool forces every connection to share the SAME in-memory database;
+    # without it, each async connection would get its own empty database,
+    # effectively losing all data between operations.
     from sqlalchemy.pool import StaticPool
 
     engine = create_async_engine(
@@ -32,16 +33,16 @@ if settings.USE_SQLITE:
     )
 
     # SQLite does not enforce FK constraints by default — enable them.
+    # We listen on the *sync* engine because aiosqlite delegates to a sync
+    # connection under the hood; the async engine doesn't fire "connect".
     @event.listens_for(engine.sync_engine, "connect")
     def _set_sqlite_pragma(dbapi_conn, connection_record):
         cursor = dbapi_conn.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
+
 else:
-    # ── Async engine with production-grade pool settings ──
-    # Pool configuration prevents connection starvation under load and
-    # automatically recycles stale connections to guard against PostgreSQL
-    # idle-timeout eviction.
+    # Async PostgreSQL engine with connection pool settings.
     engine = create_async_engine(
         settings.DATABASE_URL,
         echo=settings.DEBUG,
@@ -56,6 +57,9 @@ else:
 AsyncSessionLocal = async_sessionmaker(
     bind=engine,
     class_=AsyncSession,
+    # expire_on_commit=False is critical for async SQLAlchemy: without it,
+    # accessing an attribute after commit() triggers a lazy load, which
+    # fails because lazy loads require a sync I/O call.
     expire_on_commit=False,
 )
 

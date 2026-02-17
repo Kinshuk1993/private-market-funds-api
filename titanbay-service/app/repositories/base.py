@@ -1,23 +1,16 @@
 """
 Generic async repository (Data Access Layer).
 
-Implements the Repository pattern on top of SQLAlchemy's ``AsyncSession``.
 Concrete repositories inherit from ``BaseRepository[T]`` and can override
-or extend any method when entity-specific query logic is needed.
+or extend methods for entity-specific query logic.
 
-Design rationale:
 - Generic typing (``ModelType``) avoids duplicating CRUD logic per entity.
-- All queries go through the session's unit-of-work, so callers get automatic
-  transaction batching within a single request.
-- ``get_all()`` enforces deterministic ordering (by primary key) to make
-  paginated results stable — without this, PostgreSQL returns rows in
-  heap-insertion order which can change between queries.
-- **IntegrityError** is intentionally NOT caught here. Each service layer
-  handles it differently (investor: 409 duplicate email, investment: 422
-  FK race condition, fund: 422 constraint violation).  Re-raising lets
-  the service decide the appropriate domain error.
-- **OperationalError** (connection loss, deadlock) IS caught here and the
-  session is rolled back + error re-raised, preventing dirty session leaks.
+- ``get_all()`` enforces deterministic ordering by primary key so that
+  paginated results are stable across queries.
+- ``IntegrityError`` is NOT caught here — each service handles it with
+  a domain-specific error message.
+- ``OperationalError`` (connection loss, deadlock) IS caught; the session
+  is rolled back and the error re-raised to prevent dirty session leaks.
 """
 
 import logging
@@ -61,9 +54,7 @@ class BaseRepository(Generic[ModelType]):
 
     # ── Internal helpers ──
 
-    async def _execute_with_circuit_breaker(
-        self, func: Any, *args: Any, **kwargs: Any
-    ) -> Any:
+    async def _execute_with_circuit_breaker(self, func: Any, *args: Any, **kwargs: Any) -> Any:
         """
         Route any async callable through the circuit breaker.
 
@@ -76,6 +67,9 @@ class BaseRepository(Generic[ModelType]):
     async def get(self, id: Any) -> Optional[ModelType]:
         """Fetch a single entity by primary key.  Returns ``None`` if not found."""
 
+        # Each DB operation is wrapped in a local closure and passed to the
+        # circuit breaker.  This indirection is required because the breaker
+        # needs an awaitable callable it can invoke (and potentially skip).
         async def _get() -> Optional[ModelType]:
             return await self.db.get(self.model, id)
 

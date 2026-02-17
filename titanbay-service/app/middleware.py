@@ -42,9 +42,7 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
       caller can correlate the response with their logs.
     """
 
-    async def dispatch(
-        self, request: Request, call_next: RequestResponseEndpoint
-    ) -> Response:
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         # Honour existing request ID from upstream gateway, or generate new one
         request_id = request.headers.get(REQUEST_ID_HEADER) or str(uuid.uuid4())
         request.state.request_id = request_id
@@ -66,9 +64,7 @@ class RequestTimingMiddleware(BaseHTTPMiddleware):
     latency metrics (p50, p95, p99) that drive auto-scaling decisions.
     """
 
-    async def dispatch(
-        self, request: Request, call_next: RequestResponseEndpoint
-    ) -> Response:
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         start = time.perf_counter()
         response = await call_next(request)
         elapsed_ms = (time.perf_counter() - start) * 1000
