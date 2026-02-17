@@ -59,8 +59,8 @@ python -m app.seed
 ## One-Command Test (Local)
 
 Instead of running steps 1-5 manually, you can use the automated test script.
-It checks PostgreSQL connectivity, sets up the venv, starts uvicorn, runs **42 curl tests**
-(happy-path + edge-cases) against all 8 endpoints, captures output to `logs/local_test.log`,
+It checks PostgreSQL connectivity, sets up the venv, starts uvicorn, runs **51 tests**
+(happy-path + edge-cases + infrastructure) against all 8 endpoints, captures output to `logs/local_test.log`,
 and stops the server on exit:
 
 ```bash

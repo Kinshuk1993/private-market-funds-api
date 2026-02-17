@@ -316,11 +316,11 @@ fi
 # ── Cache hit test: read funds twice, second hit should increase cache hits ──
 TOTAL=$((TOTAL + 1))
 HEALTH_BEFORE=$(curl -s "$BASE/health" 2>/dev/null)
-HITS_BEFORE=$(echo "$HEALTH_BEFORE" | grep -o '"hits":[0-9]*' | head -1 | cut -d: -f2)
+HITS_BEFORE=$(echo "$HEALTH_BEFORE" | grep -o '"hits":[0-9]*' | head -1 | cut -d: -f2 || true)
 curl -s "$API/funds" >/dev/null 2>&1
 curl -s "$API/funds" >/dev/null 2>&1
 HEALTH_AFTER=$(curl -s "$BASE/health" 2>/dev/null)
-HITS_AFTER=$(echo "$HEALTH_AFTER" | grep -o '"hits":[0-9]*' | head -1 | cut -d: -f2)
+HITS_AFTER=$(echo "$HEALTH_AFTER" | grep -o '"hits":[0-9]*' | head -1 | cut -d: -f2 || true)
 if [ -n "$HITS_BEFORE" ] && [ -n "$HITS_AFTER" ] && [ "$HITS_AFTER" -gt "$HITS_BEFORE" ]; then
     log "  [PASS]  Cache hit count increased ($HITS_BEFORE -> $HITS_AFTER)"
     PASS=$((PASS + 1))

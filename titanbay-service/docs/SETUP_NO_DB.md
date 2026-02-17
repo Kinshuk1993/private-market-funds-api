@@ -82,7 +82,7 @@ This single command will:
 2. Install all dependencies
 3. Configure the app for SQLite in-memory mode
 4. Start the uvicorn server
-5. Run all **42 tests** (10 happy-path + 32 edge-case)
+5. Run all **51 tests** (10 happy-path + 32 edge-case + 9 infrastructure)
 6. Print a pass/fail summary
 7. Stop the server and clean up
 

@@ -73,7 +73,7 @@ docker exec titanbay-app python -m app.seed
 
 ```bash
 curl http://localhost:8000/health
-# {"status":"ok","version":"1.0.0","database":true}
+# {"status":"ok","version":"1.0.0","database":true,"circuit_breaker":{"state":"closed",...},"cache":{"enabled":true,...}}
 ```
 
 ## Teardown
@@ -92,7 +92,7 @@ docker rmi titanbay-service
 ## One-Command Test (Docker)
 
 Instead of running steps 1-6 manually, you can use the automated test script.
-It starts PostgreSQL + the app in Docker, runs **42 curl tests** (happy-path + edge-cases)
+It starts PostgreSQL + the app in Docker, runs **51 tests** (happy-path + edge-cases + infrastructure)
 against all 8 endpoints, captures output to `logs/docker_test.log`, and tears everything down:
 
 ```bash
@@ -100,6 +100,10 @@ bash scripts/test_docker.sh
 ```
 
 > **Windows (Git Bash):** `"C:\Program Files\Git\bin\bash.exe" scripts/test_docker.sh`
+>
+> **Windows note:** The test script uses `MSYS_NO_PATHCONV=1` for `docker exec` commands
+> to prevent Git Bash (MSYS2) from converting Unix container paths like `/code/logs/...`
+> into Windows paths like `C:/Program Files/Git/code/logs/...`.
 
 **No manual prompts — fully automatic.** All database credentials are passed via
 Docker environment variables (`-e`). The script never calls `psql` or asks for any

@@ -16,14 +16,15 @@ titanbay-service/
 │   ├── API_EXAMPLES.md      # Sample curl requests & responses for all 8 endpoints
 │   ├── API_REFERENCE.md     # Full endpoint specs, schemas, status codes, business rules
 │   ├── DATABASE_DESIGN.md   # Schema design, index strategy, query analysis, scaling playbook
+│   ├── DESIGN_DECISIONS.md  # 28 architectural & engineering decisions across 6 categories
 │   ├── EDGE_CASES.md        # 28+ edge-case test scenarios
 │   ├── SETUP_DOCKER.md      # Docker walkthrough (steps 1-6, teardown)
 │   ├── SETUP_LOCAL.md       # Local dev prerequisites, venv, DB creation
 │   └── SETUP_NO_DB.md       # Zero-dependency testing with in-memory SQLite
 ├── scripts/
-│   ├── test_docker.sh       # One-command Docker test suite (42 tests)
-│   ├── test_local.sh        # One-command local PostgreSQL test suite (42 tests)
-│   └── test_no_db.sh        # One-command SQLite in-memory test suite (42 tests)
+│   ├── test_docker.sh       # One-command Docker test suite (51 tests)
+│   ├── test_local.sh        # One-command local PostgreSQL test suite (51 tests)
+│   └── test_no_db.sh        # One-command SQLite in-memory test suite (51 tests)
 └── app/
     ├── __init__.py
     ├── main.py              # FastAPI app factory, lifespan events, middleware registration
@@ -126,7 +127,7 @@ docker run -d --name titanbay-app --network titanbay-net -p 8000:8000 \
 curl http://localhost:8000/health
 ```
 
-Or run all 42 tests in one command:
+Or run all 51 tests in one command:
 
 ```bash
 cd titanbay-service
@@ -148,7 +149,7 @@ cp .env.example .env
 uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-Or run all 42 tests in one command:
+Or run all 51 tests in one command:
 
 ```bash
 cd titanbay-service
@@ -171,14 +172,14 @@ pip install -r requirements.txt
 USE_SQLITE=true uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-Or **run all 42 tests in one command** (no manual setup needed):
+Or **run all 51 tests in one command** (no manual setup needed):
 
 ```bash
 cd titanbay-service
 bash scripts/test_no_db.sh
 ```
 
-The script creates a venv, installs deps, starts the server with SQLite, runs all 42 tests, and cleans up.
+The script creates a venv, installs deps, starts the server with SQLite, runs all 51 tests, and cleans up.
 
 ### Open the docs
 

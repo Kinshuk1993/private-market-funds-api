@@ -4,9 +4,9 @@
 #
 # Starts PostgreSQL + app in ephemeral Docker containers with a DEDICATED TEST
 # DATABASE (titanbay_db_test) — production data is NEVER touched.
-# Runs happy-path and edge-case curl tests against all 8 API endpoints,
-# then tears everything down.
-# All output is captured to  logs/docker_test.log
+# Runs happy-path, edge-case, and infrastructure tests (circuit breaker,
+# cache, logging, tracing headers) against all 8 API endpoints, then tears
+# everything down.  All output is captured to  logs/docker_test.log
 #
 # Usage:
 #   bash scripts/test_docker.sh
@@ -104,7 +104,7 @@ docker run -d --name "$DB_CTR" --network "$NET" \
   -e POSTGRES_USER=titanbay_user \
   -e POSTGRES_PASSWORD=titanbay_password \
   -e POSTGRES_DB=titanbay_db_test \
-  -p 5432:5432 postgres:15-alpine >/dev/null 2>&1
+  postgres:15-alpine >/dev/null 2>&1
 
 log "  Waiting for PostgreSQL..."
 sleep 3
@@ -124,6 +124,7 @@ docker run -d --name "$APP_CTR" --network "$NET" -p 8000:8000 \
   -e POSTGRES_SERVER="$DB_CTR" \
   -e POSTGRES_DB=titanbay_db_test \
   -e POSTGRES_PORT=5432 \
+  -e DEBUG=true \
   "$IMAGE" >/dev/null 2>&1
 
 wait_for_url "$BASE/health" "App" 30 || {
@@ -232,6 +233,125 @@ log "  -- General --"
 run_test "GET  non-existent endpoint"   404  "$API/nonexistent"
 run_test "DELETE /funds (wrong method)" 405  -X DELETE "$API/funds"
 run_test "POST /funds no body at all"   422  -X POST "$API/funds" -H "$CT"
+log ""
+
+# ══════════════════════════════════════════════════════════════════════════════
+# INFRASTRUCTURE TESTS  (logging, circuit breaker, cache, tracing headers)
+# ══════════════════════════════════════════════════════════════════════════════
+log "================================================================"
+log "  INFRASTRUCTURE TESTS"
+log "================================================================"
+
+# ── Health endpoint: circuit breaker + cache stats ──
+TOTAL=$((TOTAL + 1))
+INFRA_TMP="$LOG_DIR/.infra_curl_$$"
+_cbody() { curl -s --max-time 10 -o "$INFRA_TMP" "$@" 2>/dev/null || true; cat "$INFRA_TMP" 2>/dev/null || echo ""; }
+_chdrs() { curl -s --max-time 10 -D "$INFRA_TMP" -o /dev/null "$@" 2>/dev/null || true; cat "$INFRA_TMP" 2>/dev/null || echo ""; }
+HEALTH_BODY=$(_cbody "$BASE/health")
+if echo "$HEALTH_BODY" | grep -q '"circuit_breaker"' && echo "$HEALTH_BODY" | grep -q '"cache"'; then
+    log "  [PASS]  Health includes circuit_breaker + cache stats"
+    PASS=$((PASS + 1))
+else
+    log "  [FAIL]  Health missing circuit_breaker or cache stats"
+    log "          $HEALTH_BODY"
+    FAIL=$((FAIL + 1))
+fi
+
+# ── Circuit breaker shows closed state ──
+TOTAL=$((TOTAL + 1))
+if echo "$HEALTH_BODY" | grep -q '"state":"closed"'; then
+    log "  [PASS]  Circuit breaker state is 'closed' (healthy)"
+    PASS=$((PASS + 1))
+else
+    log "  [FAIL]  Circuit breaker state is NOT 'closed'"
+    log "          $HEALTH_BODY"
+    FAIL=$((FAIL + 1))
+fi
+
+# ── Cache enabled ──
+TOTAL=$((TOTAL + 1))
+if echo "$HEALTH_BODY" | grep -q '"enabled":true'; then
+    log "  [PASS]  Cache is enabled"
+    PASS=$((PASS + 1))
+else
+    log "  [FAIL]  Cache is NOT enabled"
+    log "          $HEALTH_BODY"
+    FAIL=$((FAIL + 1))
+fi
+
+# ── Cache hit test: read funds twice, second hit should increase cache hits ──
+TOTAL=$((TOTAL + 1))
+HEALTH_BEFORE=$(_cbody "$BASE/health")
+HITS_BEFORE=$(echo "$HEALTH_BEFORE" | grep -o '"hits":[0-9]*' | head -1 | cut -d: -f2 || true)
+_cbody "$API/funds" >/dev/null
+_cbody "$API/funds" >/dev/null
+HEALTH_AFTER=$(_cbody "$BASE/health")
+HITS_AFTER=$(echo "$HEALTH_AFTER" | grep -o '"hits":[0-9]*' | head -1 | cut -d: -f2 || true)
+if [ -n "$HITS_BEFORE" ] && [ -n "$HITS_AFTER" ] && [ "$HITS_AFTER" -gt "$HITS_BEFORE" ]; then
+    log "  [PASS]  Cache hit count increased ($HITS_BEFORE -> $HITS_AFTER)"
+    PASS=$((PASS + 1))
+else
+    log "  [FAIL]  Cache hit count did not increase (before=$HITS_BEFORE, after=$HITS_AFTER)"
+    FAIL=$((FAIL + 1))
+fi
+
+# ── X-Request-ID header present ──
+TOTAL=$((TOTAL + 1))
+HEADERS=$(_chdrs "$BASE/health")
+if echo "$HEADERS" | grep -qi "x-request-id"; then
+    log "  [PASS]  X-Request-ID header present"
+    PASS=$((PASS + 1))
+else
+    log "  [FAIL]  X-Request-ID header missing"
+    FAIL=$((FAIL + 1))
+fi
+
+# ── X-Process-Time header present ──
+TOTAL=$((TOTAL + 1))
+if echo "$HEADERS" | grep -qi "x-process-time"; then
+    log "  [PASS]  X-Process-Time header present"
+    PASS=$((PASS + 1))
+else
+    log "  [FAIL]  X-Process-Time header missing"
+    FAIL=$((FAIL + 1))
+fi
+
+# ── Structured log file generated (inside container) ──
+# NOTE: MSYS_NO_PATHCONV=1 prevents Git Bash (Windows) from mangling
+#       Unix paths like /code/logs/... into C:/Program Files/Git/...
+TOTAL=$((TOTAL + 1))
+CONTAINER_LOG=$(MSYS_NO_PATHCONV=1 docker exec "$APP_CTR" cat /code/logs/titanbay.log 2>/dev/null || echo "")
+if [ -n "$CONTAINER_LOG" ]; then
+    LOG_LINES=$(echo "$CONTAINER_LOG" | wc -l)
+    log "  [PASS]  Structured log file exists inside container ($LOG_LINES lines)"
+    PASS=$((PASS + 1))
+else
+    log "  [FAIL]  Structured log file not found or empty inside container"
+    FAIL=$((FAIL + 1))
+fi
+
+# ── Error log file generated (inside container) ──
+TOTAL=$((TOTAL + 1))
+if MSYS_NO_PATHCONV=1 docker exec "$APP_CTR" test -f /code/logs/titanbay-error.log 2>/dev/null; then
+    log "  [PASS]  Error log file exists inside container"
+    PASS=$((PASS + 1))
+else
+    log "  [FAIL]  Error log file not found inside container"
+    FAIL=$((FAIL + 1))
+fi
+
+# ── Log file contains JSON-formatted lines (structured logging) ──
+TOTAL=$((TOTAL + 1))
+FIRST_LOG_LINE=$(MSYS_NO_PATHCONV=1 docker exec "$APP_CTR" head -1 /code/logs/titanbay.log 2>/dev/null || echo "")
+if echo "$FIRST_LOG_LINE" | grep -q '"timestamp"'; then
+    log "  [PASS]  Log file contains JSON-structured entries"
+    PASS=$((PASS + 1))
+else
+    log "  [FAIL]  Log file does not contain expected JSON structure"
+    FAIL=$((FAIL + 1))
+fi
+
+rm -f "$INFRA_TMP" 2>/dev/null
 log ""
 
 # ══════════════════════════════════════════════════════════════════════════════
