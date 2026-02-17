@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import TYPE_CHECKING, List
 
-from sqlalchemy import DateTime
+from sqlalchemy import CheckConstraint, DateTime
 from sqlmodel import Field, Relationship, SQLModel
 
 if TYPE_CHECKING:
@@ -36,6 +36,16 @@ class Investor(SQLModel, table=True):
 
     __tablename__ = "investors"  # type: ignore[assignment]
 
+    # ── DB-level CHECK constraints ──
+    # Defence-in-depth: enforce data invariants even when bypassing the API.
+    # Note: ``investor_type`` is NOT check-constrained here because SQLAlchemy
+    # creates a native PostgreSQL ENUM type (``investortype``) which already
+    # rejects invalid values at the DB level.
+    __table_args__ = (
+        CheckConstraint("char_length(name) > 0", name="ck_investors_name_not_empty"),
+        CheckConstraint("char_length(email) > 0", name="ck_investors_email_not_empty"),
+    )
+
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     name: str = Field(index=True, max_length=255)
     investor_type: InvestorType
@@ -44,6 +54,7 @@ class Investor(SQLModel, table=True):
         default_factory=lambda: datetime.now(timezone.utc),
         nullable=False,
         sa_type=DateTime(timezone=True),  # type: ignore[arg-type]
+        index=True,  # enables efficient time-range queries and cursor-based pagination
     )
 
     # ── Relationships ──

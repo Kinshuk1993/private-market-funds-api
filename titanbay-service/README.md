@@ -56,6 +56,10 @@ app/
 | Validation | Pydantic v2 |
 | Container | Docker (multi-stage build) |
 
+> **Database Design & Scalability:** For a deep-dive into schema design decisions,
+> index strategy, query analysis, and a scaling playbook from 10K to 1B+ records,
+> see [DATABASE_DESIGN.md](DATABASE_DESIGN.md).
+
 ## Quick Start
 
 ### Option A: Docker (Recommended)
@@ -150,7 +154,7 @@ docker rmi titanbay-service
 #### One-Command Test (Docker)
 
 Instead of running steps 1-6 manually, you can use the automated test script.
-It starts PostgreSQL + the app in Docker, runs **41 curl tests** (happy-path + edge-cases)
+It starts PostgreSQL + the app in Docker, runs **42 curl tests** (happy-path + edge-cases)
 against all 8 endpoints, captures output to `logs/docker_test.log`, and tears everything down:
 
 ```bash
@@ -163,6 +167,9 @@ bash scripts/test_docker.sh
 Docker environment variables (`-e`). The script never calls `psql` or asks for any
 passwords. It creates the containers, waits for them to be healthy, runs every test,
 prints a pass/fail summary, and tears down. Zero interaction required.
+
+> **Production safety:** The Docker test uses an isolated database named `titanbay_db_test`
+> inside ephemeral containers — your production `titanbay_db` is never touched.
 
 ### Option B: Local Development (without Docker)
 
@@ -223,7 +230,7 @@ python -m app.seed
 #### One-Command Test (Local)
 
 Instead of running steps 1-5 manually, you can use the automated test script.
-It checks PostgreSQL connectivity, sets up the venv, starts uvicorn, runs **41 curl tests**
+It checks PostgreSQL connectivity, sets up the venv, starts uvicorn, runs **42 curl tests**
 (happy-path + edge-cases) against all 8 endpoints, captures output to `logs/local_test.log`,
 and stops the server on exit:
 
@@ -232,29 +239,38 @@ bash scripts/test_local.sh
 ```
 
 > **Windows (Git Bash):** `"C:\Program Files\Git\bin\bash.exe" scripts/test_local.sh`
+> **Production safety:** The local test uses an isolated database named `titanbay_db_test` —
+> your production `titanbay_db` is **never** touched. The script temporarily writes a
+> test `.env` (pointing at `titanbay_db_test`), and restores the original `.env` on exit.
 
 **Will it prompt for a password?** No — the script **never** opens an interactive prompt.
 Here is how it works depending on your database state:
 
 | Scenario | What happens | Action needed |
 | -------- | ------------ | ------------- |
-| DB + user already exist (typical after first setup) | Script connects as `titanbay_user`, skips admin setup entirely. **Fully automatic.** | None |
-| DB/user don't exist, `postgres` superuser has **trust** auth (common on macOS Homebrew) | Script auto-creates the user and database via `psql --no-password`. **Fully automatic.** | None |
-| DB/user don't exist, `postgres` superuser **requires a password** | Script cannot authenticate as the superuser. It **fails immediately** (does not hang) with a clear error message. | Either set `PGPASSWORD_ADMIN` (see below) or run the two SQL commands from Step 1 once manually. |
+| Test DB (`titanbay_db_test`) + user already exist | Script connects, truncates test tables, runs tests. **Fully automatic.** | None |
+| Test DB doesn't exist, you provide `-p` flag | Script uses the postgres superuser to create `titanbay_db_test`. **Fully automatic.** | Pass `-p` (see below) |
+| Test DB doesn't exist, no `-p` flag | Script prints clear setup instructions and **exits immediately** (does not hang). | Either use `-p` or create the DB manually (see below) |
 
-To supply the postgres superuser password without any prompt:
+**First-time setup** — provide the PostgreSQL superuser password via the `-p` flag:
 
 ```bash
 # Linux / macOS
-PGPASSWORD_ADMIN=your_postgres_password bash scripts/test_local.sh
+bash scripts/test_local.sh -p <your_postgres_password>
 
 # Windows (Git Bash)
-PGPASSWORD_ADMIN=your_postgres_password "C:\Program Files\Git\bin\bash.exe" scripts/test_local.sh
+"C:\Program Files\Git\bin\bash.exe" scripts/test_local.sh -p <your_postgres_password>
 ```
 
-Once the database and user exist (after the first successful run or manual Step 1),
-`PGPASSWORD_ADMIN` is never needed again — the script detects the existing setup and
-skips all superuser operations. Every subsequent run is fully automatic with zero
+Or create the test database manually (one-time), then run without `-p`:
+
+```bash
+psql -U postgres -h 127.0.0.1 -c "CREATE DATABASE titanbay_db_test OWNER titanbay_user;"
+bash scripts/test_local.sh
+```
+
+Once the test database exists (after the first successful run or manual creation),
+the `-p` flag is never needed again — every subsequent run is fully automatic with zero
 interaction.
 
 ### 3. Open the docs

@@ -12,14 +12,24 @@ Design rationale:
 - ``get_all()`` enforces deterministic ordering (by primary key) to make
   paginated results stable — without this, PostgreSQL returns rows in
   heap-insertion order which can change between queries.
+- **IntegrityError** is intentionally NOT caught here. Each service layer
+  handles it differently (investor: 409 duplicate email, investment: 422
+  FK race condition, fund: 422 constraint violation).  Re-raising lets
+  the service decide the appropriate domain error.
+- **OperationalError** (connection loss, deadlock) IS caught here and the
+  session is rolled back + error re-raised, preventing dirty session leaks.
 """
 
+import logging
 from typing import Any, Generic, List, Optional, Type, TypeVar
 
 from sqlalchemy import func
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlmodel import SQLModel
+
+logger = logging.getLogger(__name__)
 
 ModelType = TypeVar("ModelType", bound=SQLModel)
 
@@ -67,9 +77,20 @@ class BaseRepository(Generic[ModelType]):
         return list(result.scalars().all())
 
     async def create(self, obj_in: ModelType) -> ModelType:
-        """Insert a new entity and return the refreshed instance."""
+        """
+        Insert a new entity and return the refreshed instance.
+
+        **OperationalError** (connection loss, deadlock) triggers an automatic
+        rollback to prevent the session from leaking a dirty transaction.
+        **IntegrityError** is NOT caught — services handle it with domain-specific messages.
+        """
         self.db.add(obj_in)
-        await self.db.commit()
+        try:
+            await self.db.commit()
+        except OperationalError:
+            await self.db.rollback()
+            logger.error("OperationalError during create for %s", self.model.__name__)
+            raise
         await self.db.refresh(obj_in)
         return obj_in
 
@@ -82,7 +103,12 @@ class BaseRepository(Generic[ModelType]):
         ensure the returned object reflects any DB-side defaults.
         """
         merged = await self.db.merge(entity)
-        await self.db.commit()
+        try:
+            await self.db.commit()
+        except OperationalError:
+            await self.db.rollback()
+            logger.error("OperationalError during update for %s", self.model.__name__)
+            raise
         await self.db.refresh(merged)
         return merged
 
@@ -109,5 +135,12 @@ class BaseRepository(Generic[ModelType]):
         if entity is None:
             return False
         await self.db.delete(entity)
-        await self.db.commit()
+        try:
+            await self.db.commit()
+        except OperationalError:
+            await self.db.rollback()
+            logger.error(
+                "OperationalError during delete for %s id=%s", self.model.__name__, id
+            )
+            raise
         return True

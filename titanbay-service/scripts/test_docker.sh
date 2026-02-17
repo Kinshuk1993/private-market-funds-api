@@ -2,8 +2,10 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # test_docker.sh — One-command Docker smoke test
 #
-# Starts PostgreSQL + app in Docker containers, runs happy-path and edge-case
-# curl tests against all 8 API endpoints, then tears everything down.
+# Starts PostgreSQL + app in ephemeral Docker containers with a DEDICATED TEST
+# DATABASE (titanbay_db_test) — production data is NEVER touched.
+# Runs happy-path and edge-case curl tests against all 8 API endpoints,
+# then tears everything down.
 # All output is captured to  logs/docker_test.log
 #
 # Usage:
@@ -101,13 +103,13 @@ log "[SETUP] Starting PostgreSQL container..."
 docker run -d --name "$DB_CTR" --network "$NET" \
   -e POSTGRES_USER=titanbay_user \
   -e POSTGRES_PASSWORD=titanbay_password \
-  -e POSTGRES_DB=titanbay_db \
+  -e POSTGRES_DB=titanbay_db_test \
   -p 5432:5432 postgres:15-alpine >/dev/null 2>&1
 
 log "  Waiting for PostgreSQL..."
 sleep 3
 for _ in $(seq 1 10); do
-    docker exec "$DB_CTR" pg_isready -U titanbay_user -d titanbay_db >/dev/null 2>&1 && { log "  PostgreSQL ready"; break; }
+    docker exec "$DB_CTR" pg_isready -U titanbay_user -d titanbay_db_test >/dev/null 2>&1 && { log "  PostgreSQL ready"; break; }
     sleep 2
 done
 
@@ -120,7 +122,7 @@ docker run -d --name "$APP_CTR" --network "$NET" -p 8000:8000 \
   -e POSTGRES_USER=titanbay_user \
   -e POSTGRES_PASSWORD=titanbay_password \
   -e POSTGRES_SERVER="$DB_CTR" \
-  -e POSTGRES_DB=titanbay_db \
+  -e POSTGRES_DB=titanbay_db_test \
   -e POSTGRES_PORT=5432 \
   "$IMAGE" >/dev/null 2>&1
 
@@ -205,15 +207,7 @@ run_test "POST /investors whitespace name"   422  -X POST "$API/investors" -H "$
 log ""
 log "  -- Investments --"
 
-# Close fund -> test business rule
-curl -s -X PUT "$API/funds" -H "$CT" \
-    -d "{\"id\":\"$FUND_ID\",\"name\":\"Smoke Test Fund\",\"vintage_year\":2025,\"target_size_usd\":200000000,\"status\":\"Closed\"}" >/dev/null 2>&1
-run_test "POST /investments closed fund"        422  -X POST "$API/funds/$FUND_ID/investments" -H "$CT" -d "{\"investor_id\":\"$INVESTOR_ID\",\"amount_usd\":1000000,\"investment_date\":\"2025-06-15\"}"
-
-# Revert fund
-curl -s -X PUT "$API/funds" -H "$CT" \
-    -d "{\"id\":\"$FUND_ID\",\"name\":\"Smoke Test Fund\",\"vintage_year\":2025,\"target_size_usd\":200000000,\"status\":\"Investing\"}" >/dev/null 2>&1
-
+# Tests that need an active (non-Closed) fund run FIRST
 run_test "POST /investments non-existent fund"      404  -X POST "$API/funds/00000000-0000-0000-0000-000000000000/investments" -H "$CT" -d "{\"investor_id\":\"$INVESTOR_ID\",\"amount_usd\":1000000,\"investment_date\":\"2025-06-15\"}"
 run_test "POST /investments non-existent investor"   404  -X POST "$API/funds/$FUND_ID/investments" -H "$CT" -d '{"investor_id":"00000000-0000-0000-0000-000000000000","amount_usd":1000000,"investment_date":"2025-06-15"}'
 run_test "POST /investments negative amount"         422  -X POST "$API/funds/$FUND_ID/investments" -H "$CT" -d "{\"investor_id\":\"$INVESTOR_ID\",\"amount_usd\":-500,\"investment_date\":\"2025-06-15\"}"
@@ -222,6 +216,16 @@ run_test "POST /investments far future date"         422  -X POST "$API/funds/$F
 run_test "POST /investments missing fields"          422  -X POST "$API/funds/$FUND_ID/investments" -H "$CT" -d '{}'
 run_test "POST /investments invalid date"            422  -X POST "$API/funds/$FUND_ID/investments" -H "$CT" -d "{\"investor_id\":\"$INVESTOR_ID\",\"amount_usd\":1000000,\"investment_date\":\"not-a-date\"}"
 run_test "GET  /investments non-existent fund"       404  "$API/funds/00000000-0000-0000-0000-000000000000/investments"
+
+# Close fund -> test business rule (closed fund rejects investments)
+curl -s -X PUT "$API/funds" -H "$CT" \
+    -d "{\"id\":\"$FUND_ID\",\"name\":\"Smoke Test Fund\",\"vintage_year\":2025,\"target_size_usd\":200000000,\"status\":\"Closed\"}" >/dev/null 2>&1
+run_test "POST /investments closed fund"        422  -X POST "$API/funds/$FUND_ID/investments" -H "$CT" -d "{\"investor_id\":\"$INVESTOR_ID\",\"amount_usd\":1000000,\"investment_date\":\"2025-06-15\"}"
+
+# Test invalid status transition: Closed -> Fundraising (one-way lifecycle)
+run_test "PUT  /funds invalid transition Closed->Fundraising" 422 \
+    -X PUT "$API/funds" -H "$CT" \
+    -d "{\"id\":\"$FUND_ID\",\"name\":\"Smoke Test Fund\",\"vintage_year\":2025,\"target_size_usd\":200000000,\"status\":\"Fundraising\"}"
 
 log ""
 log "  -- General --"
