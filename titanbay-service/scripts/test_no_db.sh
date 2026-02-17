@@ -9,8 +9,15 @@
 # Does NOT require: Docker, PostgreSQL, or any database server.
 #
 # The app starts with an ephemeral in-memory SQLite database that is created
-# fresh on startup and destroyed when the server stops.  All 42 happy-path
-# and edge-case tests run against this in-memory database.
+# fresh on startup and destroyed when the server stops.  All tests (happy-path,
+# edge-case, infrastructure) run against this in-memory database.
+#
+# Infrastructure tests verify:
+#   - Health endpoint includes circuit breaker + cache stats
+#   - Structured log file is generated with rotation config
+#   - Cache produces hits on repeated reads
+#   - X-Request-ID header is present for distributed tracing
+#   - X-Process-Time header is present for latency monitoring
 #
 # Usage:
 #   bash scripts/test_no_db.sh
@@ -263,6 +270,119 @@ log "  -- General --"
 run_test "GET  non-existent endpoint"   404  "$API/nonexistent"
 run_test "DELETE /funds (wrong method)" 405  -X DELETE "$API/funds"
 run_test "POST /funds no body at all"   422  -X POST "$API/funds" -H "$CT"
+log ""
+
+# ══════════════════════════════════════════════════════════════════════════════
+# INFRASTRUCTURE TESTS  (logging, circuit breaker, cache, tracing headers)
+# ══════════════════════════════════════════════════════════════════════════════
+log "================================================================"
+log "  INFRASTRUCTURE TESTS"
+log "================================================================"
+
+# ── Health endpoint: circuit breaker + cache stats ──
+TOTAL=$((TOTAL + 1))
+HEALTH_BODY=$(curl -s "$BASE/health" 2>/dev/null)
+if echo "$HEALTH_BODY" | grep -q '"circuit_breaker"' && echo "$HEALTH_BODY" | grep -q '"cache"'; then
+    log "  [PASS]  Health includes circuit_breaker + cache stats"
+    PASS=$((PASS + 1))
+else
+    log "  [FAIL]  Health missing circuit_breaker or cache stats"
+    log "          $HEALTH_BODY"
+    FAIL=$((FAIL + 1))
+fi
+
+# ── Circuit breaker shows closed state ──
+TOTAL=$((TOTAL + 1))
+if echo "$HEALTH_BODY" | grep -q '"state":"closed"'; then
+    log "  [PASS]  Circuit breaker state is 'closed' (healthy)"
+    PASS=$((PASS + 1))
+else
+    log "  [FAIL]  Circuit breaker state is NOT 'closed'"
+    log "          $HEALTH_BODY"
+    FAIL=$((FAIL + 1))
+fi
+
+# ── Cache enabled ──
+TOTAL=$((TOTAL + 1))
+if echo "$HEALTH_BODY" | grep -q '"enabled":true'; then
+    log "  [PASS]  Cache is enabled"
+    PASS=$((PASS + 1))
+else
+    log "  [FAIL]  Cache is NOT enabled"
+    log "          $HEALTH_BODY"
+    FAIL=$((FAIL + 1))
+fi
+
+# ── Cache hit test: read funds twice, second hit should increase cache hits ──
+TOTAL=$((TOTAL + 1))
+HEALTH_BEFORE=$(curl -s "$BASE/health" 2>/dev/null)
+HITS_BEFORE=$(echo "$HEALTH_BEFORE" | grep -o '"hits":[0-9]*' | head -1 | cut -d: -f2 || true)
+curl -s "$API/funds" >/dev/null 2>&1
+curl -s "$API/funds" >/dev/null 2>&1
+HEALTH_AFTER=$(curl -s "$BASE/health" 2>/dev/null)
+HITS_AFTER=$(echo "$HEALTH_AFTER" | grep -o '"hits":[0-9]*' | head -1 | cut -d: -f2 || true)
+if [ -n "$HITS_BEFORE" ] && [ -n "$HITS_AFTER" ] && [ "$HITS_AFTER" -gt "$HITS_BEFORE" ]; then
+    log "  [PASS]  Cache hit count increased ($HITS_BEFORE -> $HITS_AFTER)"
+    PASS=$((PASS + 1))
+else
+    log "  [FAIL]  Cache hit count did not increase (before=$HITS_BEFORE, after=$HITS_AFTER)"
+    FAIL=$((FAIL + 1))
+fi
+
+# ── X-Request-ID header present ──
+TOTAL=$((TOTAL + 1))
+HEADERS=$(curl -s -D - -o /dev/null "$BASE/health" 2>/dev/null)
+if echo "$HEADERS" | grep -qi "x-request-id"; then
+    log "  [PASS]  X-Request-ID header present"
+    PASS=$((PASS + 1))
+else
+    log "  [FAIL]  X-Request-ID header missing"
+    FAIL=$((FAIL + 1))
+fi
+
+# ── X-Process-Time header present ──
+TOTAL=$((TOTAL + 1))
+if echo "$HEADERS" | grep -qi "x-process-time"; then
+    log "  [PASS]  X-Process-Time header present"
+    PASS=$((PASS + 1))
+else
+    log "  [FAIL]  X-Process-Time header missing"
+    FAIL=$((FAIL + 1))
+fi
+
+# ── Structured log file generated ──
+APP_LOG="$LOG_DIR/titanbay.log"
+TOTAL=$((TOTAL + 1))
+if [ -f "$APP_LOG" ] && [ -s "$APP_LOG" ]; then
+    LOG_LINES=$(wc -l < "$APP_LOG")
+    log "  [PASS]  Structured log file exists ($LOG_LINES lines): $APP_LOG"
+    PASS=$((PASS + 1))
+else
+    log "  [FAIL]  Structured log file not found or empty: $APP_LOG"
+    FAIL=$((FAIL + 1))
+fi
+
+# ── Error log file generated ──
+ERR_LOG="$LOG_DIR/titanbay-error.log"
+TOTAL=$((TOTAL + 1))
+if [ -f "$ERR_LOG" ]; then
+    log "  [PASS]  Error log file exists: $ERR_LOG"
+    PASS=$((PASS + 1))
+else
+    log "  [FAIL]  Error log file not found: $ERR_LOG"
+    FAIL=$((FAIL + 1))
+fi
+
+# ── Log file contains JSON-formatted lines (structured logging) ──
+TOTAL=$((TOTAL + 1))
+if [ -f "$APP_LOG" ] && head -1 "$APP_LOG" | grep -q '"timestamp"'; then
+    log "  [PASS]  Log file contains JSON-structured entries"
+    PASS=$((PASS + 1))
+else
+    log "  [FAIL]  Log file does not contain expected JSON structure"
+    FAIL=$((FAIL + 1))
+fi
+
 log ""
 
 # ══════════════════════════════════════════════════════════════════════════════

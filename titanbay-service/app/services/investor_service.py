@@ -11,6 +11,11 @@ Race condition note:
     true safety net.  We catch the resulting ``IntegrityError`` and translate
     it to a 409 Conflict so the client always gets a clean error message
     regardless of timing.
+
+Caching:
+    Read operations (``get_all_investors``) check the in-memory TTL cache
+    first.  Write operations (``create_investor``) invalidate all
+    ``investors:`` cache keys.
 """
 
 import logging
@@ -18,6 +23,7 @@ from typing import List
 
 from sqlalchemy.exc import IntegrityError
 
+from app.core.cache import cache
 from app.core.exceptions import ConflictException
 from app.models.investor import Investor
 from app.repositories.investor_repo import InvestorRepository
@@ -29,6 +35,8 @@ logger = logging.getLogger(__name__)
 class InvestorService:
     """Encapsulates CRUD + business rules for :class:`Investor`."""
 
+    CACHE_PREFIX = "investors:"
+
     def __init__(self, investor_repo: InvestorRepository):
         self._repo = investor_repo
 
@@ -37,8 +45,16 @@ class InvestorService:
     async def get_all_investors(
         self, skip: int = 0, limit: int = 100
     ) -> List[Investor]:
-        """Return a paginated list of investors."""
-        return await self._repo.get_all(skip=skip, limit=limit)
+        """Return a paginated list of investors (cache-backed)."""
+        cache_key = f"{self.CACHE_PREFIX}list:{skip}:{limit}"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            logger.debug("Cache hit for %s", cache_key)
+            return cached
+
+        investors = await self._repo.get_all(skip=skip, limit=limit)
+        cache.set(cache_key, investors)
+        return investors
 
     # ── Commands ──
 
@@ -52,6 +68,7 @@ class InvestorService:
 
         A secondary ``IntegrityError`` catch handles the TOCTOU race where
         two concurrent requests slip past the pre-check simultaneously.
+        Invalidates investor cache after successful creation.
         """
         # Optimistic pre-check (fast path — catches 99.9% of duplicates)
         existing = await self._repo.get_by_email(str(investor_in.email))
@@ -75,5 +92,6 @@ class InvestorService:
                 f"An investor with email '{investor_in.email}' already exists"
             )
 
+        cache.invalidate(self.CACHE_PREFIX)
         logger.info("Created investor %s (%s)", created.id, created.name)
         return created

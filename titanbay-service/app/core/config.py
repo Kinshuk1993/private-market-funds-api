@@ -94,6 +94,20 @@ class Settings(BaseSettings):
     # Comma-separated list of allowed origins. "*" in dev, restrict in prod.
     CORS_ORIGINS: str = "*"
 
+    # ── Logging ──
+    LOG_LEVEL: str = "INFO"  # Root log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+    LOG_FILE_MAX_BYTES: int = 10 * 1024 * 1024  # 10 MB per log file before rotation
+    LOG_FILE_BACKUP_COUNT: int = 5  # Number of rotated log files to keep
+
+    # ── Circuit Breaker ──
+    CB_FAILURE_THRESHOLD: int = 5  # Consecutive failures before circuit opens
+    CB_RECOVERY_TIMEOUT: float = 30.0  # Seconds to wait before probe attempt
+
+    # ── Cache ──
+    CACHE_ENABLED: bool = True  # Set to false in load tests or when debugging stale data
+    CACHE_TTL: float = 30.0  # Seconds before cache entries expire
+    CACHE_MAX_SIZE: int = 1000  # Maximum number of cached entries
+
     # ── Misc ──
     DEBUG: bool = False
 

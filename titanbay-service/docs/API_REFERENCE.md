@@ -356,7 +356,24 @@ Liveness / readiness probe with database connectivity check.
 {
   "status": "ok",
   "version": "1.0.0",
-  "database": true
+  "database": true,
+  "circuit_breaker": {
+    "name": "database",
+    "state": "closed",
+    "failure_count": 0,
+    "failure_threshold": 5,
+    "success_count": 0,
+    "recovery_timeout_s": 30.0
+  },
+  "cache": {
+    "enabled": true,
+    "size": 42,
+    "max_size": 1000,
+    "ttl_seconds": 30.0,
+    "hits": 128,
+    "misses": 15,
+    "hit_rate": "89.51%"
+  }
 }
 ```
 
@@ -365,6 +382,8 @@ Liveness / readiness probe with database connectivity check.
 | `status` | string | `"ok"` when healthy, `"degraded"` when database is unreachable |
 | `version` | string | API version |
 | `database` | boolean | `true` if a `SELECT 1` succeeds against PostgreSQL |
+| `circuit_breaker` | object | Circuit breaker state (`closed`/`open`/`half_open`), failure count, and thresholds |
+| `cache` | object | Cache statistics: `enabled`, `size`, `max_size`, `ttl_seconds`, `hits`, `misses`, `hit_rate` |
 
 ### GET /docs
 
@@ -387,6 +406,18 @@ Liveness / readiness probe with database connectivity check.
 | **409** | `ConflictException` | Unique constraint violation (duplicate investor email) |
 | **422** | `RequestValidationError` | Pydantic validation failure on request body/params |
 | **422** | `BusinessRuleViolation` | Domain rule violated (closed fund, invalid status transition, DB constraint) |
+| **503** | `CircuitBreakerError` | Circuit breaker is open (database unreachable). Includes `Retry-After` header with seconds until recovery probe. |
 | **500** | Global catch-all | Unhandled exception (logged for investigation) |
 
 All errors return the [standard error envelope](#common-response-envelopes) documented above.
+
+---
+
+## Response Headers
+
+Every response includes these observability headers:
+
+| Header | Description | Example |
+| ------ | ----------- | ------- |
+| `X-Request-ID` | Unique request correlation ID. Honoured from upstream proxy if present, otherwise generated as UUID4. Propagated through all log entries for distributed tracing. | `a1b2c3d4-e5f6-7890-abcd-ef1234567890` |
+| `X-Process-Time` | Server-side processing time in seconds. Requests exceeding 500ms are logged at WARNING level. | `0.0234` |

@@ -1,7 +1,7 @@
 """
 Titanbay Private Markets API — Application entry-point.
 
-Initialises the FastAPI application, registers middleware, exception handlers,
+Initializes the FastAPI application, registers middleware, exception handlers,
 routers, and manages the application lifecycle (DB table creation on startup).
 """
 
@@ -20,15 +20,14 @@ from sqlmodel import SQLModel
 from app.api.v1.api import api_router
 from app.core.config import settings
 from app.core.exceptions import add_exception_handlers
+from app.core.logging import setup_logging
+from app.core.resilience import db_circuit_breaker
+from app.core.cache import cache
 from app.db.session import AsyncSessionLocal, engine
 from app.middleware import RequestIDMiddleware, RequestTimingMiddleware
 
-# ── Structured logging configuration ──
-logging.basicConfig(
-    level=logging.DEBUG if settings.DEBUG else logging.INFO,
-    format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
+# ── Initialise production logging (rotating files + JSON structured) ──
+setup_logging()
 logger = logging.getLogger(__name__)
 
 
@@ -162,6 +161,9 @@ async def health_check():
     is reachable by executing a lightweight ``SELECT 1`` — without this,
     a Kubernetes readiness probe would keep routing traffic to a pod that
     has lost its DB connection, causing cascading 500 errors.
+
+    Also reports circuit breaker state and cache statistics for operational
+    visibility.
     """
     db_healthy = True
     try:
@@ -171,4 +173,10 @@ async def health_check():
         db_healthy = False
 
     status = "ok" if db_healthy else "degraded"
-    return {"status": status, "version": "1.0.0", "database": db_healthy}
+    return {
+        "status": status,
+        "version": "1.0.0",
+        "database": db_healthy,
+        "circuit_breaker": db_circuit_breaker.get_status(),
+        "cache": cache.get_stats(),
+    }

@@ -4,7 +4,7 @@
 
 This is the fastest way to run and review the API.  The application starts with an **ephemeral in-memory SQLite database** that is created fresh on startup and destroyed when the server stops.  All 8 endpoints, all validation rules, and all business logic work identically to the PostgreSQL path.
 
-You can either **start the server interactively** (to explore via Swagger UI) or **run the automated 42-test suite** — both are covered below.
+You can either **start the server interactively** (to explore via Swagger UI) or **run the automated test suite** (happy-path + edge-case + infrastructure tests) — both are covered below.
 
 ---
 
@@ -82,7 +82,7 @@ This single command will:
 2. Install all dependencies
 3. Configure the app for SQLite in-memory mode
 4. Start the uvicorn server
-5. Run all **42 tests** (10 happy-path + 32 edge-case)
+5. Run all **51 tests** (10 happy-path + 32 edge-case + 9 infrastructure)
 6. Print a pass/fail summary
 7. Stop the server and clean up
 
@@ -164,7 +164,7 @@ curl http://localhost:8000/health
 Expected response:
 
 ```json
-{"status": "ok", "version": "1.0.0", "database": true}
+{"status": "ok", "version": "1.0.0", "database": true, "circuit_breaker": {"state": "closed", ...}, "cache": {"enabled": true, ...}}
 ```
 
 ### Step 7: Try the API

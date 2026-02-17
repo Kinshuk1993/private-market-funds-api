@@ -3,6 +3,11 @@ Investment service — business logic layer for investment (commitment) operatio
 
 Contains the most critical business rule in the system: investments into
 *Closed* funds must be rejected.
+
+Caching:
+    Read operations (``get_investments_by_fund``) check the in-memory TTL
+    cache first.  Write operations (``create_investment``) invalidate all
+    ``investments:`` cache keys.
 """
 
 import logging
@@ -11,6 +16,7 @@ from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
 
+from app.core.cache import cache
 from app.core.exceptions import BusinessRuleViolation, NotFoundException
 from app.models.fund import FundStatus
 from app.models.investment import Investment
@@ -30,6 +36,8 @@ class InvestmentService:
     investment must validate the existence and state of both related entities.
     """
 
+    CACHE_PREFIX = "investments:"
+
     def __init__(
         self,
         invest_repo: InvestmentRepository,
@@ -46,7 +54,7 @@ class InvestmentService:
         self, fund_id: UUID, skip: int = 0, limit: int = 100
     ) -> List[Investment]:
         """
-        Return investments for a given fund, with pagination.
+        Return investments for a given fund, with pagination (cache-backed).
 
         The fund is validated first so the caller gets a clear 404 instead
         of an empty list when the fund does not exist.
@@ -54,7 +62,16 @@ class InvestmentService:
         fund = await self._fund_repo.get(fund_id)
         if not fund:
             raise NotFoundException("Fund", fund_id)
-        return await self._invest_repo.get_by_fund(fund_id, skip=skip, limit=limit)
+
+        cache_key = f"{self.CACHE_PREFIX}{fund_id}:{skip}:{limit}"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            logger.debug("Cache hit for %s", cache_key)
+            return cached
+
+        investments = await self._invest_repo.get_by_fund(fund_id, skip=skip, limit=limit)
+        cache.set(cache_key, investments)
+        return investments
 
     # ── Commands ──
 
@@ -72,6 +89,7 @@ class InvestmentService:
            Without this check we would get an opaque FK-violation from Postgres.
 
         Only after all preconditions pass is the investment persisted.
+        Invalidates investment cache after successful creation.
         """
         # 1 ─ Validate fund existence
         fund = await self._fund_repo.get(fund_id)
@@ -113,6 +131,7 @@ class InvestmentService:
                 "Investment could not be created — a referenced fund or investor "
                 "may have been removed, or a database constraint was violated."
             )
+        cache.invalidate(self.CACHE_PREFIX)
         logger.info(
             "Created investment %s: investor %s → fund %s ($%s)",
             created.id,

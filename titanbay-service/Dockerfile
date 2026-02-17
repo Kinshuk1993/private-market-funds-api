@@ -35,7 +35,9 @@ WORKDIR /code
 COPY . .
 
 # Run as non-root for security
-RUN adduser --disabled-password --no-create-home appuser
+RUN adduser --disabled-password --no-create-home appuser \
+    && mkdir -p /code/logs \
+    && chown appuser:appuser /code/logs
 USER appuser
 
 EXPOSE 8000

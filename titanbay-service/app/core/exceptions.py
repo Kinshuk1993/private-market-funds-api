@@ -22,6 +22,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.core.resilience import CircuitBreakerError
+
 logger = logging.getLogger(__name__)
 
 
@@ -80,6 +82,33 @@ def add_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=exc.status_code,
             content={"error": True, "message": exc.message},
+        )
+
+    @app.exception_handler(CircuitBreakerError)
+    async def circuit_breaker_handler(
+        request: Request, exc: CircuitBreakerError
+    ) -> JSONResponse:
+        """
+        Handle circuit breaker open state → 503 Service Unavailable.
+
+        Includes a Retry-After header so well-behaved clients know when to
+        retry, preventing thundering-herd effects during recovery.
+        """
+        logger.warning(
+            "Circuit breaker '%s' rejected %s %s — retry after %.1fs",
+            exc.name,
+            request.method,
+            request.url.path,
+            exc.retry_after,
+        )
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": True,
+                "message": f"Service temporarily unavailable — {exc.name} circuit is open",
+                "retry_after_seconds": round(exc.retry_after, 1),
+            },
+            headers={"Retry-After": str(int(exc.retry_after) + 1)},
         )
 
     @app.exception_handler(StarletteHTTPException)
