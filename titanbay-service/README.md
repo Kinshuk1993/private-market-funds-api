@@ -72,6 +72,8 @@ app/
 | [Docker Setup](docs/SETUP_DOCKER.md) | Full Docker walkthrough (steps 1-6, teardown, one-command test) |
 | [Local Setup](docs/SETUP_LOCAL.md) | Local dev prerequisites, venv, DB creation, one-command test |
 | [No-DB Setup](docs/SETUP_NO_DB.md) | Zero-dependency testing with in-memory SQLite (no Docker, no PostgreSQL) |
+| [Testing Guide](docs/TESTING.md) | Unit test suite: 154 pytest tests, ~90% coverage, test architecture |
+| [Code Quality](docs/CODE_QUALITY.md) | black, isort, flake8 setup: formatting, import sorting, linting |
 
 ## Quick Start
 

@@ -24,7 +24,7 @@ import os
 import sys
 from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from app.core.config import settings
 

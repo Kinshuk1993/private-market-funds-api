@@ -1,0 +1,57 @@
+# ─────────────────────────────────────────────────────────────
+# Titanbay Service — Project Configuration
+# ─────────────────────────────────────────────────────────────
+
+# ── pytest ──
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--strict-markers",
+    "--tb=short",
+    "-ra",
+]
+markers = [
+    "unit: Pure unit tests (no I/O, mocked dependencies)",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+
+# ── coverage ──
+[tool.coverage.run]
+source = ["app"]
+omit = [
+    "app/__pycache__/*",
+    "app/seed.py",
+    "app/main.py",
+    "app/core/logging.py",
+    "app/db/session.py",
+    "app/db/base.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 85
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.",
+    "if TYPE_CHECKING:",
+    "pass",
+]
+
+# ── black ──
+[tool.black]
+line-length = 99
+target-version = ["py312"]
+
+# ── isort ──
+[tool.isort]
+profile = "black"
+line_length = 99
+known_first_party = ["app"]
+sections = ["FUTURE", "STDLIB", "THIRDPARTY", "FIRSTPARTY", "LOCALFOLDER"]

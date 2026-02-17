@@ -75,9 +75,7 @@ class InvestmentService:
 
     # ── Commands ──
 
-    async def create_investment(
-        self, fund_id: UUID, invest_in: InvestmentCreate
-    ) -> Investment:
+    async def create_investment(self, fund_id: UUID, invest_in: InvestmentCreate) -> Investment:
         """
         Record a new investment (capital commitment) into a fund.
 

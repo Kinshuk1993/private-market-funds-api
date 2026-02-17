@@ -7,7 +7,7 @@ The top-level ``main.py`` mounts this router at ``/api/v1``.
 
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import funds, investors, investments
+from app.api.v1.endpoints import funds, investments, investors
 
 api_router = APIRouter()
 

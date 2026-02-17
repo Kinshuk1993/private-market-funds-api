@@ -29,7 +29,7 @@ import logging
 import random
 import time
 from enum import Enum
-from typing import Any, Callable, Optional, Set, Tuple, Type
+from typing import Any, Callable, Optional, Tuple, Type
 
 from app.core.config import settings
 
@@ -162,7 +162,7 @@ class CircuitBreaker:
             result = await func(*args, **kwargs)
             self._record_success()
             return result
-        except self.expected_exceptions as exc:
+        except self.expected_exceptions as exc:  # noqa: F841
             self._record_failure()
             raise
 

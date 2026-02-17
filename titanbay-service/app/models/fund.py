@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 from enum import Enum
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, List
 
 from sqlalchemy import CheckConstraint, DateTime
 from sqlmodel import Field, Relationship, SQLModel

@@ -23,7 +23,7 @@ Thread safety:
 
 import logging
 import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 from app.core.config import settings
 
@@ -127,10 +127,7 @@ class TTLCache:
         if not self._enabled:
             return 0
 
-        keys_to_remove = [
-            k for k in self._store
-            if any(k.startswith(p) for p in prefixes)
-        ]
+        keys_to_remove = [k for k in self._store if any(k.startswith(p) for p in prefixes)]
         for k in keys_to_remove:
             del self._store[k]
 

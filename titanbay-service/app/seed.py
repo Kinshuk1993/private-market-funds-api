@@ -24,9 +24,7 @@ from app.models.fund import Fund, FundStatus
 from app.models.investment import Investment
 from app.models.investor import Investor, InvestorType
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger(__name__)
 
 # ── Sample data matching the API spec examples ──

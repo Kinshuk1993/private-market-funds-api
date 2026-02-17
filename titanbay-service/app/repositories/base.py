@@ -61,9 +61,7 @@ class BaseRepository(Generic[ModelType]):
 
     # ── Internal helpers ──
 
-    async def _execute_with_circuit_breaker(
-        self, func: Any, *args: Any, **kwargs: Any
-    ) -> Any:
+    async def _execute_with_circuit_breaker(self, func: Any, *args: Any, **kwargs: Any) -> Any:
         """
         Route any async callable through the circuit breaker.
 

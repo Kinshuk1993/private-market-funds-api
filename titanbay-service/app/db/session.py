@@ -37,6 +37,7 @@ if settings.USE_SQLITE:
         cursor = dbapi_conn.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
+
 else:
     # ── Async engine with production-grade pool settings ──
     # Pool configuration prevents connection starvation under load and

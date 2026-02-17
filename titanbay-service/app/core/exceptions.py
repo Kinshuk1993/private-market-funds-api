@@ -75,9 +75,7 @@ def add_exception_handlers(app: FastAPI) -> None:
     """Register global exception handlers on the FastAPI application instance."""
 
     @app.exception_handler(AppException)
-    async def app_exception_handler(
-        request: Request, exc: AppException
-    ) -> JSONResponse:
+    async def app_exception_handler(request: Request, exc: AppException) -> JSONResponse:
         """Handle domain-specific exceptions raised by the service layer."""
         return JSONResponse(
             status_code=exc.status_code,
@@ -85,9 +83,7 @@ def add_exception_handlers(app: FastAPI) -> None:
         )
 
     @app.exception_handler(CircuitBreakerError)
-    async def circuit_breaker_handler(
-        request: Request, exc: CircuitBreakerError
-    ) -> JSONResponse:
+    async def circuit_breaker_handler(request: Request, exc: CircuitBreakerError) -> JSONResponse:
         """
         Handle circuit breaker open state → 503 Service Unavailable.
 
@@ -141,18 +137,14 @@ def add_exception_handlers(app: FastAPI) -> None:
         )
 
     @app.exception_handler(Exception)
-    async def global_exception_handler(
-        request: Request, exc: Exception
-    ) -> JSONResponse:
+    async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
         """
         Catch-all for unexpected exceptions.
 
         In production this should forward to an observability platform
         (e.g. Sentry, Datadog) before returning a generic 500.
         """
-        logger.exception(
-            "Unhandled exception on %s %s", request.method, request.url.path
-        )
+        logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
         return JSONResponse(
             status_code=500,
             content={

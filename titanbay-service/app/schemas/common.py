@@ -7,7 +7,7 @@ Swagger UI only shows the "happy path" response — API consumers have no
 programmatic way to discover the error contract.
 """
 
-from typing import List, Optional
+from typing import List
 
 from pydantic import BaseModel, Field
 
@@ -54,6 +54,4 @@ class ValidationErrorResponse(BaseModel):
         default="Validation failed",
         description="Summary message",
     )
-    details: List[ValidationErrorDetail] = Field(
-        ..., description="Per-field validation failures"
-    )
+    details: List[ValidationErrorDetail] = Field(..., description="Per-field validation failures")
