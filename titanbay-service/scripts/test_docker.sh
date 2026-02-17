@@ -2,8 +2,10 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # test_docker.sh — One-command Docker smoke test
 #
-# Starts PostgreSQL + app in Docker containers, runs happy-path and edge-case
-# curl tests against all 8 API endpoints, then tears everything down.
+# Starts PostgreSQL + app in ephemeral Docker containers with a DEDICATED TEST
+# DATABASE (titanbay_db_test) — production data is NEVER touched.
+# Runs happy-path and edge-case curl tests against all 8 API endpoints,
+# then tears everything down.
 # All output is captured to  logs/docker_test.log
 #
 # Usage:
@@ -101,13 +103,13 @@ log "[SETUP] Starting PostgreSQL container..."
 docker run -d --name "$DB_CTR" --network "$NET" \
   -e POSTGRES_USER=titanbay_user \
   -e POSTGRES_PASSWORD=titanbay_password \
-  -e POSTGRES_DB=titanbay_db \
+  -e POSTGRES_DB=titanbay_db_test \
   -p 5432:5432 postgres:15-alpine >/dev/null 2>&1
 
 log "  Waiting for PostgreSQL..."
 sleep 3
 for _ in $(seq 1 10); do
-    docker exec "$DB_CTR" pg_isready -U titanbay_user -d titanbay_db >/dev/null 2>&1 && { log "  PostgreSQL ready"; break; }
+    docker exec "$DB_CTR" pg_isready -U titanbay_user -d titanbay_db_test >/dev/null 2>&1 && { log "  PostgreSQL ready"; break; }
     sleep 2
 done
 
@@ -120,7 +122,7 @@ docker run -d --name "$APP_CTR" --network "$NET" -p 8000:8000 \
   -e POSTGRES_USER=titanbay_user \
   -e POSTGRES_PASSWORD=titanbay_password \
   -e POSTGRES_SERVER="$DB_CTR" \
-  -e POSTGRES_DB=titanbay_db \
+  -e POSTGRES_DB=titanbay_db_test \
   -e POSTGRES_PORT=5432 \
   "$IMAGE" >/dev/null 2>&1
 

@@ -3,14 +3,45 @@
 # test_local.sh — One-command local smoke test (no Docker)
 #
 # Requires: PostgreSQL running locally, Python 3.14+ installed.
-# Creates the DB/user if missing, activates venv, starts uvicorn, runs
-# happy-path and edge-case curl tests, then stops the server.
+# Uses a DEDICATED TEST DATABASE (titanbay_db_test) — production data in
+# titanbay_db is NEVER touched.  Backs up .env and restores it on exit.
+# Activates venv, starts uvicorn against the test DB, runs happy-path and
+# edge-case curl tests, then stops the server and restores .env.
 # All output is captured to  logs/local_test.log
 #
 # Usage:
-#   bash scripts/test_local.sh
+#   bash scripts/test_local.sh                   # test DB must exist already
+#   bash scripts/test_local.sh -p <pg_password>   # creates test DB via superuser
+#
+# First-time setup (if NOT using -p flag):
+#   psql -U postgres -c "CREATE DATABASE titanbay_db_test OWNER titanbay_user;"
 # ──────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
+
+# ── Parse arguments ──
+PG_ADMIN_PW=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -p|--pg-admin-password)
+            PG_ADMIN_PW="$2"
+            shift 2
+            ;;
+        -h|--help)
+            echo "Usage: bash scripts/test_local.sh [-p <postgres_superuser_password>]"
+            echo ""
+            echo "Options:"
+            echo "  -p, --pg-admin-password  PostgreSQL superuser password (to auto-create test DB)"
+            echo ""
+            echo "If the test DB (titanbay_db_test) does not exist and -p is not provided,"
+            echo "the script will print manual setup instructions and exit."
+            exit 0
+            ;;
+        *)
+            echo "Unknown argument: $1. Use -h for help."
+            exit 1
+            ;;
+    esac
+done
 
 # ── Resolve paths ──
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -27,16 +58,30 @@ log() { echo "$*" | tee -a "$LOG_FILE"; }
 PASS=0; FAIL=0; TOTAL=0
 LAST_BODY=""
 APP_PID=""
+CLEANED_UP=false
 
 cleanup() {
+    # Guard against double-cleanup (trap fires for both signals and EXIT)
+    [ "$CLEANED_UP" = true ] && return
+    CLEANED_UP=true
+
     if [ -n "$APP_PID" ] && kill -0 "$APP_PID" 2>/dev/null; then
         log "[CLEANUP] Stopping uvicorn (PID $APP_PID)..."
         kill "$APP_PID" 2>/dev/null || true
         wait "$APP_PID" 2>/dev/null || true
         log "  Server stopped"
     fi
+    # Restore original .env so the app doesn't accidentally keep pointing at the test DB
+    if [ -f "$PROJECT_DIR/.env.bak" ]; then
+        mv -f "$PROJECT_DIR/.env.bak" "$PROJECT_DIR/.env"
+        log "  Original .env restored"
+    elif [ -f "$PROJECT_DIR/.env" ]; then
+        # No backup existed (first run) — remove the test .env so it doesn't linger
+        rm -f "$PROJECT_DIR/.env"
+        log "  Test .env removed (no original to restore)"
+    fi
 }
-trap cleanup EXIT
+trap cleanup EXIT INT TERM
 
 run_test() {
     local name="$1" expected="$2"; shift 2
@@ -92,7 +137,7 @@ CT="Content-Type: application/json"
 
 DB_USER="titanbay_user"
 DB_PASS="titanbay_password"
-DB_NAME="titanbay_db"
+DB_NAME="titanbay_db_test"   # ← dedicated test DB — never touches production
 DB_HOST="127.0.0.1"
 DB_PORT="5432"
 
@@ -118,41 +163,62 @@ else
     log "  pg_isready not found — assuming PostgreSQL is running"
 fi
 
-# ── 2. Check / create DB user and database ──
+# ── 2. Ensure app user exists (check via default 'postgres' DB) ──
 log "[SETUP] Checking database connectivity..."
 
-# First, try to connect directly as the app user.
-if PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -h "$DB_HOST" -p "$DB_PORT" -d "$DB_NAME" -c "SELECT 1" >/dev/null 2>&1; then
-    log "  Database '$DB_NAME' accessible as '$DB_USER'"
-else
-    log "  Cannot connect as '$DB_USER' — attempting to create user/database..."
-    log "  Set PGPASSWORD_ADMIN or ensure 'trust' auth for local postgres user."
-    PG_ADMIN_PW="${PGPASSWORD_ADMIN:-}"
+# Verify PostgreSQL is reachable by trying the app user against the default 'postgres' DB.
+if ! PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -h "$DB_HOST" -p "$DB_PORT" -d postgres -c "SELECT 1" >/dev/null 2>&1; then
+    log "  Cannot connect as '$DB_USER' — attempting to create user..."
+    if [ -z "$PG_ADMIN_PW" ]; then
+        log "  ERROR: No admin password provided (-p flag) and '$DB_USER' cannot connect."
+        log "  Run:  bash scripts/test_local.sh -p <postgres_superuser_password>"
+        exit 1
+    fi
 
-    # Create user if it doesn't exist (non-interactive)
-    if PGPASSWORD="$PG_ADMIN_PW" psql -U postgres -h "$DB_HOST" -p "$DB_PORT" --no-password -tAc \
+    if PGPASSWORD="$PG_ADMIN_PW" psql -U postgres -h "$DB_HOST" -p "$DB_PORT" -tAc \
         "SELECT 1 FROM pg_roles WHERE rolname='$DB_USER'" 2>/dev/null | grep -q 1; then
         log "  User '$DB_USER' already exists"
     else
-        PGPASSWORD="$PG_ADMIN_PW" psql -U postgres -h "$DB_HOST" -p "$DB_PORT" --no-password -c \
-            "CREATE USER $DB_USER WITH PASSWORD '$DB_PASS';" >>"$LOG_FILE" 2>&1 \
-            && log "  Created user '$DB_USER'" \
-            || { log "  ERROR: Could not create user. Ensure PostgreSQL trust auth or set PGPASSWORD_ADMIN."; exit 1; }
-    fi
-
-    # Create database if it doesn't exist
-    if PGPASSWORD="$PG_ADMIN_PW" psql -U postgres -h "$DB_HOST" -p "$DB_PORT" --no-password -tAc \
-        "SELECT 1 FROM pg_database WHERE datname='$DB_NAME'" 2>/dev/null | grep -q 1; then
-        log "  Database '$DB_NAME' already exists"
-    else
-        PGPASSWORD="$PG_ADMIN_PW" psql -U postgres -h "$DB_HOST" -p "$DB_PORT" --no-password -c \
-            "CREATE DATABASE $DB_NAME OWNER $DB_USER;" >>"$LOG_FILE" 2>&1 \
-            && log "  Created database '$DB_NAME'" \
-            || { log "  ERROR: Could not create database. Ensure PostgreSQL trust auth or set PGPASSWORD_ADMIN."; exit 1; }
+        PGPASSWORD="$PG_ADMIN_PW" psql -U postgres -h "$DB_HOST" -p "$DB_PORT" -c \
+            "CREATE USER $DB_USER WITH PASSWORD '$DB_PASS' CREATEDB;" >>"$LOG_FILE" 2>&1 \
+            && log "  Created user '$DB_USER' (with CREATEDB)" \
+            || { log "  ERROR: Could not create user. Check your -p password."; exit 1; }
     fi
 fi
 
-# ── 3. Python venv + deps ──
+# ── 3. Create dedicated test database (never touches production) ──
+log "[SETUP] Provisioning test database '$DB_NAME'..."
+if PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -h "$DB_HOST" -p "$DB_PORT" -d "$DB_NAME" -c "SELECT 1" >/dev/null 2>&1; then
+    log "  Test database '$DB_NAME' already exists"
+else
+    # Try as app user first (needs CREATEDB); fall back to postgres admin
+    created=false
+    if PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -h "$DB_HOST" -p "$DB_PORT" -d postgres -c \
+        "CREATE DATABASE $DB_NAME;" >>"$LOG_FILE" 2>&1; then
+        created=true
+    elif [ -n "$PG_ADMIN_PW" ] && PGPASSWORD="$PG_ADMIN_PW" psql -U postgres -h "$DB_HOST" -p "$DB_PORT" -c \
+        "CREATE DATABASE $DB_NAME OWNER $DB_USER;" >>"$LOG_FILE" 2>&1; then
+        created=true
+    fi
+
+    if [ "$created" = true ]; then
+        log "  Created test database '$DB_NAME'"
+    else
+        log ""
+        log "  ━━━ Test database '$DB_NAME' does not exist ━━━"
+        log ""
+        log "  Option A — provide the PostgreSQL superuser password:"
+        log "    bash scripts/test_local.sh -p <your_postgres_password>"
+        log ""
+        log "  Option B — create it manually (one-time) via pgAdmin or psql:"
+        log "    psql -U postgres -c \"CREATE DATABASE $DB_NAME OWNER $DB_USER;\""
+        log "    then re-run:  bash scripts/test_local.sh"
+        log ""
+        exit 1
+    fi
+fi
+
+# ── 4. Python venv + deps ──
 log "[SETUP] Setting up Python environment..."
 cd "$PROJECT_DIR"
 
@@ -174,7 +240,9 @@ fi
 pip install -q -r requirements.txt >>"$LOG_FILE" 2>&1
 log "  Dependencies installed"
 
-# ── 4. Write .env ──
+# ── 5. Write .env (pointing at the TEST database) ──
+# Back up existing .env so cleanup() can restore it
+[ -f .env ] && cp .env .env.bak
 cat > .env <<EOF
 POSTGRES_USER=$DB_USER
 POSTGRES_PASSWORD=$DB_PASS
@@ -184,9 +252,9 @@ POSTGRES_PORT=$DB_PORT
 DEBUG=true
 CORS_ORIGINS=*
 EOF
-log "  .env configured"
+log "  .env configured (pointing at test DB: $DB_NAME)"
 
-# ── 5. Start uvicorn ──
+# ── 6. Start uvicorn ──
 log "[SETUP] Starting uvicorn..."
 uvicorn app.main:app --host 127.0.0.1 --port 8000 >>"$LOG_FILE" 2>&1 &
 APP_PID=$!
@@ -196,6 +264,13 @@ wait_for_url "$BASE/health" "App" 30 || {
     log "FATAL: App failed to start. Check logs/local_test.log for details."
     exit 1
 }
+
+# ── 7. Clean stale test data (test DB persists between runs) ──
+log "[SETUP] Cleaning stale test data in '$DB_NAME'..."
+PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -h "$DB_HOST" -p "$DB_PORT" -d "$DB_NAME" -c \
+    "TRUNCATE TABLE investments, investors, funds CASCADE;" >>"$LOG_FILE" 2>&1 \
+    && log "  Tables truncated" \
+    || log "  WARNING: Could not truncate tables (they may not exist yet — first run)"
 log ""
 
 # ══════════════════════════════════════════════════════════════════════════════
