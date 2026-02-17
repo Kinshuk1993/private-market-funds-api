@@ -74,7 +74,7 @@ A comprehensive catalogue of the architectural and engineering decisions behind 
 
 1. **Circuit breaker on all database operations** — Every repository method is routed through a global `CircuitBreaker` instance.  After 5 consecutive connection failures (configurable via `CB_FAILURE_THRESHOLD`), the circuit opens and all subsequent calls fast-fail with `CircuitBreakerError` (→ 503 + `Retry-After` header) instead of timing out.  After `CB_RECOVERY_TIMEOUT` (30s default), a single probe is allowed through.  This prevents thread/connection exhaustion during a database outage and gives the DB time to recover.
 
-2. **Exponential backoff with jitter** — The `retry_with_backoff` decorator implements industry-standard retry logic: configurable max retries, base delay that doubles each attempt, cap on maximum delay, and random jitter (0–50% of delay) to prevent thundering-herd effects when multiple replicas retry simultaneously.
+2. **Exponential backoff with jitter** — The `retry_with_backoff` decorator implements retry logic with: configurable max retries, base delay that doubles each attempt, cap on maximum delay, and random jitter (0–50% of delay) to prevent thundering-herd effects when multiple replicas retry simultaneously.
 
 3. **503 Service Unavailable + Retry-After header** — When the circuit breaker rejects a request, the API returns HTTP 503 with a `Retry-After` header containing the seconds until the circuit attempts recovery.  Well-behaved HTTP clients and load balancers honour this header, preventing retry storms.
 

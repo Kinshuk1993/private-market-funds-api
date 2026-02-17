@@ -50,7 +50,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     Shutdown:
       - Disposes of the connection pool to release DB connections cleanly.
     """
-    # Import models so SQLModel.metadata knows about them
+    # Import models so SQLModel.metadata knows about them.
+    # SQLModel (and SQLAlchemy) only learns about table classes when their
+    # module is imported.  Without these imports, create_all() would create
+    # an empty database with no tables.
     import app.models.fund  # noqa: F401
     import app.models.investment  # noqa: F401
     import app.models.investor  # noqa: F401
@@ -86,7 +89,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     exc,
                 )
 
-    yield  # ← application is running
+    # asynccontextmanager protocol: everything above `yield` runs at startup,
+    # everything below it runs at shutdown.  FastAPI calls this as:
+    #   async with lifespan(app):  # startup
+    #       ... serve requests ...
+    #   # shutdown code runs after the `with` block exits
+    yield
 
     logger.info("Shutting down — disposing connection pool")
     await engine.dispose()
@@ -120,9 +128,7 @@ async def custom_redoc_html():
 
 
 # ── Middleware (order matters: outermost = first to execute) ──
-# GZip compresses responses > 500 bytes — critical for reducing bandwidth
-# when serving millions of global users, especially on list endpoints
-# that return large JSON arrays.
+# GZip compresses responses > 500 bytes, reducing bandwidth on list endpoints.
 app.add_middleware(GZipMiddleware, minimum_size=500)
 
 # Request ID: injects/propagates X-Request-ID for distributed tracing

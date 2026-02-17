@@ -12,10 +12,8 @@ Implements industry-standard practices:
 - **Request-ID correlation** — Logs include the request ID from middleware
   context for distributed tracing.
 
-Usage:
-    Call ``setup_logging()`` once during application startup (in ``main.py``).
-    All modules that call ``logging.getLogger(__name__)`` will automatically
-    inherit the configured handlers and formatters.
+Call ``setup_logging()`` once at startup; all modules using
+``logging.getLogger(__name__)`` inherit the configured handlers.
 """
 
 import json

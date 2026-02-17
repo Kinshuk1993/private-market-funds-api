@@ -37,10 +37,10 @@ class Investor(SQLModel, table=True):
     __tablename__ = "investors"  # type: ignore[assignment]
 
     # ── DB-level CHECK constraints ──
-    # Defence-in-depth: enforce data invariants even when bypassing the API.
-    # Note: ``investor_type`` is NOT check-constrained here because SQLAlchemy
-    # creates a native PostgreSQL ENUM type (``investortype``) which already
-    # rejects invalid values at the DB level.
+    # Enforce data invariants even when bypassing the API layer.
+    # ``investor_type`` is NOT check-constrained because SQLAlchemy creates
+    # a native PostgreSQL ENUM type (``investortype``) which already rejects
+    # invalid values.
     __table_args__ = (
         CheckConstraint("length(name) > 0", name="ck_investors_name_not_empty"),
         CheckConstraint("length(email) > 0", name="ck_investors_email_not_empty"),

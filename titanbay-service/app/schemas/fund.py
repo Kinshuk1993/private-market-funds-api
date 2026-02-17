@@ -1,5 +1,5 @@
 """
-Pydantic schemas for Fund API request / response serialisation.
+Pydantic schemas for Fund API request / response serialization.
 
 Separating schemas from SQLModel table models keeps the API contract
 decoupled from the persistence layer (Interface Segregation Principle).

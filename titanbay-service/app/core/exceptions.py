@@ -1,5 +1,5 @@
 """
-Global exception handlers for the FastAPI application.
+Global exception handlers and domain-specific exceptions.
 
 Centralises error formatting so every error response follows a consistent
 JSON structure::
@@ -9,9 +9,9 @@ JSON structure::
         "message": "<human-readable description>"
     }
 
-This module also defines domain-specific exceptions that the service layer
-can raise without importing FastAPI's HTTPException, keeping business logic
-framework-agnostic (Dependency Inversion Principle).
+Domain exceptions (``NotFoundException``, ``ConflictException``, etc.) let the
+service layer raise errors without importing FastAPI, keeping business logic
+framework-agnostic.
 """
 
 import logging
@@ -138,12 +138,7 @@ def add_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-        """
-        Catch-all for unexpected exceptions.
-
-        In production this should forward to an observability platform
-        (e.g. Sentry, Datadog) before returning a generic 500.
-        """
+        """Catch-all for unexpected exceptions — logs the traceback and returns a generic 500."""
         logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
         return JSONResponse(
             status_code=500,

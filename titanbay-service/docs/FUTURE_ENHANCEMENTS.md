@@ -246,7 +246,7 @@ CMD ["gunicorn", "app.main:app", \
 
 ### Dockerfile Current State
 
-The Dockerfile is already production-grade: multi-stage build, non-root user,
+The Dockerfile is already well-structured: multi-stage build, non-root user,
 slim base image, `.dockerignore`-friendly layout.
 
 ### Dockerfile Future Improvements

@@ -16,9 +16,8 @@ Design decisions:
 - **Max-size eviction** — When the cache exceeds ``max_size`` entries, the
   oldest entry is evicted (FIFO) to prevent unbounded memory growth.
 
-Thread safety:
-    Python's GIL + async single-threaded event loop make dict operations
-    atomic for our use case.  No additional locking is needed.
+Thread safety: Python's GIL + the single-threaded async event loop make
+dict operations atomic here. No additional locking is needed.
 """
 
 import logging
@@ -104,7 +103,9 @@ class TTLCache:
         if not self._enabled:
             return
 
-        # Evict oldest if at capacity
+        # Evict oldest if at capacity.
+        # Uses Python 3.7+ dict insertion ordering for FIFO semantics:
+        # next(iter(d)) returns the first-inserted key, which is the oldest.
         if len(self._store) >= self._max_size and key not in self._store:
             oldest_key = next(iter(self._store))
             del self._store[oldest_key]
@@ -127,6 +128,8 @@ class TTLCache:
         if not self._enabled:
             return 0
 
+        # O(n×m) scan — acceptable because max_size is small (default 1000)
+        # and invalidation only happens on writes, not reads.
         keys_to_remove = [k for k in self._store if any(k.startswith(p) for p in prefixes)]
         for k in keys_to_remove:
             del self._store[k]

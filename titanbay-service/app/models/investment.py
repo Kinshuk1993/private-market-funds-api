@@ -23,7 +23,6 @@ class Investment(SQLModel, table=True):
     """
     SQLModel / SQLAlchemy table definition for investments.
 
-    Design notes:
     - FK columns are indexed individually for joins and existence checks.
     - A **composite index** ``ix_investments_fund_date`` covers the hottest
       query (``GET /funds/{fund_id}/investments``), enabling an index-only

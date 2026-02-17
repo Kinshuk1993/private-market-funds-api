@@ -38,11 +38,10 @@ class Fund(SQLModel, table=True):
     __tablename__ = "funds"  # type: ignore[assignment]
 
     # ── DB-level CHECK constraints ──
-    # Defence-in-depth: these enforce data integrity even if the Pydantic
-    # validation layer is bypassed (e.g. direct SQL, admin scripts, seed data).
-    # Note: ``status`` is NOT check-constrained here because SQLAlchemy creates
-    # a native PostgreSQL ENUM type (``fundstatus``) which already rejects
-    # invalid values at the DB level — a CHECK constraint would conflict.
+    # Enforce data integrity even if the Pydantic validation layer is bypassed
+    # (e.g. direct SQL inserts, admin scripts, seed data).
+    # ``status`` is NOT check-constrained because SQLAlchemy creates a native
+    # PostgreSQL ENUM type (``fundstatus``) which already rejects invalid values.
     __table_args__ = (
         CheckConstraint("target_size_usd > 0", name="ck_funds_target_size_positive"),
         CheckConstraint("vintage_year >= 1900", name="ck_funds_vintage_year_min"),

@@ -25,6 +25,9 @@ router = APIRouter()
 
 
 # ── Dependency injection ──
+# FastAPI's Depends() system creates a fresh service instance per request,
+# each wired to its own DB session.  This ensures one request's transaction
+# cannot bleed into another and makes unit testing easy (swap the dependency).
 
 
 def _get_fund_service(db: AsyncSession = Depends(get_db)) -> FundService:

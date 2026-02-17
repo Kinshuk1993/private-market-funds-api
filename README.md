@@ -234,7 +234,7 @@ Highlights:
 - **Observability** — `X-Request-ID` tracing, `X-Process-Time` header, JSON structured logging with rotating file handlers, health probe with DB + circuit breaker + cache stats.
 - **Resilience patterns** — Circuit breaker (CLOSED/OPEN/HALF_OPEN) wraps all DB calls; exponential backoff with jitter on transient failures; 503 + `Retry-After` header when circuit is open.
 - **Caching** — In-memory TTL cache on read endpoints with write-through invalidation on mutations; configurable TTL, max-size, enable/disable toggle.
-- **Production-grade infra** — Connection pooling with `pool_pre_ping`, GZip compression, multi-stage Docker build (non-root), exponential back-off on startup.
+- **Infra** — Connection pooling with `pool_pre_ping`, GZip compression, multi-stage Docker build (non-root), exponential back-off on startup.
 - **Dual-database support** — `USE_SQLITE=true` swaps to in-memory SQLite for zero-dependency testing; `model_validator` enforces PG credentials in production.
 
 ## Error Response Format
