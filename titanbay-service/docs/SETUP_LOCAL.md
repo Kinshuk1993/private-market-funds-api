@@ -4,7 +4,7 @@
 
 ## Prerequisites
 
-- **Python 3.14+** installed
+- **Python 3.14** installed
 - **PostgreSQL 15+** installed and **running** locally. The application **will not start** without a reachable PostgreSQL instance — it connects to the database during startup to create tables.
   - **Windows:** Install from <https://www.postgresql.org/download/windows/> or via `winget install PostgreSQL.PostgreSQL`. After installation, ensure the PostgreSQL service is running (check *Services* or run `pg_isready`).
   - **macOS:** `brew install postgresql@16 && brew services start postgresql@16`

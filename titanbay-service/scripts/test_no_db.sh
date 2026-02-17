@@ -1,53 +1,28 @@
 #!/usr/bin/env bash
 # ──────────────────────────────────────────────────────────────────────────────
-# test_local.sh — One-command local smoke test (no Docker)
+# test_no_db.sh — One-command smoke test WITHOUT Docker or PostgreSQL
 #
-# Requires: PostgreSQL running locally, Python 3.14 installed.
-# Uses a DEDICATED TEST DATABASE (titanbay_db_test) — production data in
-# titanbay_db is NEVER touched.  Backs up .env and restores it on exit.
-# Activates venv, starts uvicorn against the test DB, runs happy-path and
-# edge-case curl tests, then stops the server and restores .env.
-# All output is captured to  logs/local_test.log
+# Uses an in-memory SQLite database via the USE_SQLITE=true flag.
+# Zero external dependencies beyond Python 3.14 and curl.
+#
+# Requires: Python 3.14 installed, curl available.
+# Does NOT require: Docker, PostgreSQL, or any database server.
+#
+# The app starts with an ephemeral in-memory SQLite database that is created
+# fresh on startup and destroyed when the server stops.  All 42 happy-path
+# and edge-case tests run against this in-memory database.
 #
 # Usage:
-#   bash scripts/test_local.sh                   # test DB must exist already
-#   bash scripts/test_local.sh -p <pg_password>   # creates test DB via superuser
+#   bash scripts/test_no_db.sh
 #
-# First-time setup (if NOT using -p flag):
-#   psql -U postgres -c "CREATE DATABASE titanbay_db_test OWNER titanbay_user;"
 # ──────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
-
-# ── Parse arguments ──
-PG_ADMIN_PW=""
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        -p|--pg-admin-password)
-            PG_ADMIN_PW="$2"
-            shift 2
-            ;;
-        -h|--help)
-            echo "Usage: bash scripts/test_local.sh [-p <postgres_superuser_password>]"
-            echo ""
-            echo "Options:"
-            echo "  -p, --pg-admin-password  PostgreSQL superuser password (to auto-create test DB)"
-            echo ""
-            echo "If the test DB (titanbay_db_test) does not exist and -p is not provided,"
-            echo "the script will print manual setup instructions and exit."
-            exit 0
-            ;;
-        *)
-            echo "Unknown argument: $1. Use -h for help."
-            exit 1
-            ;;
-    esac
-done
 
 # ── Resolve paths ──
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 LOG_DIR="$PROJECT_DIR/logs"
-LOG_FILE="$LOG_DIR/local_test.log"
+LOG_FILE="$LOG_DIR/no_db_test.log"
 mkdir -p "$LOG_DIR"
 > "$LOG_FILE"
 
@@ -71,12 +46,11 @@ cleanup() {
         wait "$APP_PID" 2>/dev/null || true
         log "  Server stopped"
     fi
-    # Restore original .env so the app doesn't accidentally keep pointing at the test DB
+    # Restore original .env so the app doesn't accidentally stay in SQLite mode
     if [ -f "$PROJECT_DIR/.env.bak" ]; then
         mv -f "$PROJECT_DIR/.env.bak" "$PROJECT_DIR/.env"
         log "  Original .env restored"
     elif [ -f "$PROJECT_DIR/.env" ]; then
-        # No backup existed (first run) — remove the test .env so it doesn't linger
         rm -f "$PROJECT_DIR/.env"
         log "  Test .env removed (no original to restore)"
     fi
@@ -135,96 +109,24 @@ BASE="http://localhost:8000"
 API="$BASE/api/v1"
 CT="Content-Type: application/json"
 
-DB_USER="titanbay_user"
-DB_PASS="titanbay_password"
-DB_NAME="titanbay_db_test"   # ← dedicated test DB — never touches production
-DB_HOST="127.0.0.1"
-DB_PORT="5432"
-
 # ══════════════════════════════════════════════════════════════════════════════
 # SETUP
 # ══════════════════════════════════════════════════════════════════════════════
 log "================================================================"
-log "  Titanbay Local Smoke Test — $(date '+%Y-%m-%d %H:%M:%S')"
+log "  Titanbay No-DB Smoke Test (SQLite In-Memory)"
+log "  $(date '+%Y-%m-%d %H:%M:%S')"
 log "================================================================"
 log ""
 
-# ── 1. Check PostgreSQL ──
-log "[SETUP] Checking local PostgreSQL..."
-if command -v pg_isready &>/dev/null; then
-    if pg_isready -h "$DB_HOST" -p "$DB_PORT" >/dev/null 2>&1; then
-        log "  PostgreSQL is accepting connections"
-    else
-        log "  ERROR: PostgreSQL is not running on $DB_HOST:$DB_PORT"
-        log "  Start PostgreSQL first, then re-run this script."
-        exit 1
-    fi
-else
-    log "  pg_isready not found — assuming PostgreSQL is running"
-fi
-
-# ── 2. Ensure app user exists (check via default 'postgres' DB) ──
-log "[SETUP] Checking database connectivity..."
-
-# Verify PostgreSQL is reachable by trying the app user against the default 'postgres' DB.
-if ! PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -h "$DB_HOST" -p "$DB_PORT" -d postgres -c "SELECT 1" >/dev/null 2>&1; then
-    log "  Cannot connect as '$DB_USER' — attempting to create user..."
-    if [ -z "$PG_ADMIN_PW" ]; then
-        log "  ERROR: No admin password provided (-p flag) and '$DB_USER' cannot connect."
-        log "  Run:  bash scripts/test_local.sh -p <postgres_superuser_password>"
-        exit 1
-    fi
-
-    if PGPASSWORD="$PG_ADMIN_PW" psql -U postgres -h "$DB_HOST" -p "$DB_PORT" -tAc \
-        "SELECT 1 FROM pg_roles WHERE rolname='$DB_USER'" 2>/dev/null | grep -q 1; then
-        log "  User '$DB_USER' already exists"
-    else
-        PGPASSWORD="$PG_ADMIN_PW" psql -U postgres -h "$DB_HOST" -p "$DB_PORT" -c \
-            "CREATE USER $DB_USER WITH PASSWORD '$DB_PASS' CREATEDB;" >>"$LOG_FILE" 2>&1 \
-            && log "  Created user '$DB_USER' (with CREATEDB)" \
-            || { log "  ERROR: Could not create user. Check your -p password."; exit 1; }
-    fi
-fi
-
-# ── 3. Create dedicated test database (never touches production) ──
-log "[SETUP] Provisioning test database '$DB_NAME'..."
-if PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -h "$DB_HOST" -p "$DB_PORT" -d "$DB_NAME" -c "SELECT 1" >/dev/null 2>&1; then
-    log "  Test database '$DB_NAME' already exists"
-else
-    # Try as app user first (needs CREATEDB); fall back to postgres admin
-    created=false
-    if PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -h "$DB_HOST" -p "$DB_PORT" -d postgres -c \
-        "CREATE DATABASE $DB_NAME;" >>"$LOG_FILE" 2>&1; then
-        created=true
-    elif [ -n "$PG_ADMIN_PW" ] && PGPASSWORD="$PG_ADMIN_PW" psql -U postgres -h "$DB_HOST" -p "$DB_PORT" -c \
-        "CREATE DATABASE $DB_NAME OWNER $DB_USER;" >>"$LOG_FILE" 2>&1; then
-        created=true
-    fi
-
-    if [ "$created" = true ]; then
-        log "  Created test database '$DB_NAME'"
-    else
-        log ""
-        log "  ━━━ Test database '$DB_NAME' does not exist ━━━"
-        log ""
-        log "  Option A — provide the PostgreSQL superuser password:"
-        log "    bash scripts/test_local.sh -p <your_postgres_password>"
-        log ""
-        log "  Option B — create it manually (one-time) via pgAdmin or psql:"
-        log "    psql -U postgres -c \"CREATE DATABASE $DB_NAME OWNER $DB_USER;\""
-        log "    then re-run:  bash scripts/test_local.sh"
-        log ""
-        exit 1
-    fi
-fi
-
-# ── 4. Python venv + deps ──
+# ── 1. Python venv + deps ──
 log "[SETUP] Setting up Python environment..."
 cd "$PROJECT_DIR"
 
 if [ ! -d "venv" ]; then
     python -m venv venv
     log "  Created virtual environment"
+else
+    log "  Using existing virtual environment"
 fi
 
 # Activate (Linux/macOS vs Git Bash on Windows)
@@ -240,37 +142,26 @@ fi
 pip install -q -r requirements.txt >>"$LOG_FILE" 2>&1
 log "  Dependencies installed"
 
-# ── 5. Write .env (pointing at the TEST database) ──
+# ── 2. Write .env (SQLite in-memory mode — no database needed) ──
 # Back up existing .env so cleanup() can restore it
 [ -f .env ] && cp .env .env.bak
 cat > .env <<EOF
-POSTGRES_USER=$DB_USER
-POSTGRES_PASSWORD=$DB_PASS
-POSTGRES_SERVER=$DB_HOST
-POSTGRES_DB=$DB_NAME
-POSTGRES_PORT=$DB_PORT
+USE_SQLITE=true
 DEBUG=true
 CORS_ORIGINS=*
 EOF
-log "  .env configured (pointing at test DB: $DB_NAME)"
+log "  .env configured (SQLite in-memory mode)"
 
-# ── 6. Start uvicorn ──
-log "[SETUP] Starting uvicorn..."
+# ── 3. Start uvicorn ──
+log "[SETUP] Starting uvicorn (SQLite in-memory)..."
 uvicorn app.main:app --host 127.0.0.1 --port 8000 >>"$LOG_FILE" 2>&1 &
 APP_PID=$!
 log "  uvicorn PID=$APP_PID"
 
 wait_for_url "$BASE/health" "App" 30 || {
-    log "FATAL: App failed to start. Check logs/local_test.log for details."
+    log "FATAL: App failed to start. Check logs/no_db_test.log for details."
     exit 1
 }
-
-# ── 7. Clean stale test data (test DB persists between runs) ──
-log "[SETUP] Cleaning stale test data in '$DB_NAME'..."
-PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -h "$DB_HOST" -p "$DB_PORT" -d "$DB_NAME" -c \
-    "TRUNCATE TABLE investments, investors, funds CASCADE;" >>"$LOG_FILE" 2>&1 \
-    && log "  Tables truncated" \
-    || log "  WARNING: Could not truncate tables (they may not exist yet — first run)"
 log ""
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -49,7 +49,7 @@ app/
 
 | Component | Choice |
 | --------- | ------ |
-| Language | Python 3.14+ |
+| Language | Python 3.14 |
 | Framework | FastAPI 0.115+ |
 | ORM | SQLAlchemy 2.0 (async) + SQLModel |
 | Database | PostgreSQL 15+ |
@@ -66,6 +66,7 @@ app/
 | [Database Design](docs/DATABASE_DESIGN.md) | Schema design, index strategy, query analysis, scaling playbook |
 | [Docker Setup](docs/SETUP_DOCKER.md) | Full Docker walkthrough (steps 1-6, teardown, one-command test) |
 | [Local Setup](docs/SETUP_LOCAL.md) | Local dev prerequisites, venv, DB creation, one-command test |
+| [No-DB Setup](docs/SETUP_NO_DB.md) | Zero-dependency testing with in-memory SQLite (no Docker, no PostgreSQL) |
 
 ## Quick Start
 
@@ -117,6 +118,20 @@ Or run all 42 tests in one command:
 ```bash
 bash scripts/test_local.sh -p <your_postgres_password>
 ```
+
+### Option C: No Database (Easiest)
+
+Full step-by-step instructions: **[docs/SETUP_NO_DB.md](docs/SETUP_NO_DB.md)**
+
+No Docker. No PostgreSQL. Just Python and curl.
+Uses an **in-memory SQLite** database.
+
+```bash
+cd titanbay-service
+bash scripts/test_no_db.sh
+```
+
+This single command creates a venv, installs deps, starts the server with SQLite, runs all 42 tests, and cleans up.
 
 ### Open the docs
 
@@ -181,10 +196,11 @@ All errors follow a consistent JSON envelope. See **[API Reference → Common Re
 
 | Variable | Default | Description |
 | -------- | ------- | ----------- |
-| `POSTGRES_USER` | — | Database user |
-| `POSTGRES_PASSWORD` | — | Database password |
-| `POSTGRES_SERVER` | — | Database host |
-| `POSTGRES_DB` | — | Database name |
+| `USE_SQLITE` | `false` | Use in-memory SQLite instead of PostgreSQL (for testing) |
+| `POSTGRES_USER` | — | Database user (**required** unless `USE_SQLITE=true`) |
+| `POSTGRES_PASSWORD` | — | Database password (**required** unless `USE_SQLITE=true`) |
+| `POSTGRES_SERVER` | — | Database host (**required** unless `USE_SQLITE=true`) |
+| `POSTGRES_DB` | — | Database name (**required** unless `USE_SQLITE=true`) |
 | `POSTGRES_PORT` | `5432` | Database port |
 | `DB_POOL_SIZE` | `10` | SQLAlchemy connection pool size |
 | `DB_MAX_OVERFLOW` | `20` | Extra connections above pool size |

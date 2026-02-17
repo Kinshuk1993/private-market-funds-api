@@ -42,8 +42,8 @@ class Investor(SQLModel, table=True):
     # creates a native PostgreSQL ENUM type (``investortype``) which already
     # rejects invalid values at the DB level.
     __table_args__ = (
-        CheckConstraint("char_length(name) > 0", name="ck_investors_name_not_empty"),
-        CheckConstraint("char_length(email) > 0", name="ck_investors_email_not_empty"),
+        CheckConstraint("length(name) > 0", name="ck_investors_name_not_empty"),
+        CheckConstraint("length(email) > 0", name="ck_investors_email_not_empty"),
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)

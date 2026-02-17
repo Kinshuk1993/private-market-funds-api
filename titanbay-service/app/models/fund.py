@@ -46,7 +46,7 @@ class Fund(SQLModel, table=True):
     __table_args__ = (
         CheckConstraint("target_size_usd > 0", name="ck_funds_target_size_positive"),
         CheckConstraint("vintage_year >= 1900", name="ck_funds_vintage_year_min"),
-        CheckConstraint("char_length(name) > 0", name="ck_funds_name_not_empty"),
+        CheckConstraint("length(name) > 0", name="ck_funds_name_not_empty"),
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
