@@ -56,6 +56,10 @@ app/
 | Validation | Pydantic v2 |
 | Container | Docker (multi-stage build) |
 
+> **Database Design & Scalability:** For a deep-dive into schema design decisions,
+> index strategy, query analysis, and a scaling playbook from 10K to 1B+ records,
+> see [DATABASE_DESIGN.md](DATABASE_DESIGN.md).
+
 ## Quick Start
 
 ### Option A: Docker (Recommended)

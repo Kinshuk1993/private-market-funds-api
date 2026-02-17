@@ -44,6 +44,7 @@ class Investor(SQLModel, table=True):
         default_factory=lambda: datetime.now(timezone.utc),
         nullable=False,
         sa_type=DateTime(timezone=True),  # type: ignore[arg-type]
+        index=True,  # enables efficient time-range queries and cursor-based pagination
     )
 
     # ── Relationships ──
