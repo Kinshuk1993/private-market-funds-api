@@ -1,8 +1,10 @@
 # No-Database Setup (SQLite In-Memory)
 
-> Run all 42 tests with **zero external dependencies** — no Docker, no PostgreSQL, no database server of any kind.
+> **Run the entire application locally with zero external dependencies** — no Docker, no PostgreSQL, no database server of any kind.
 
-This is the fastest way to verify the API works correctly.  The application starts with an **ephemeral in-memory SQLite database** that is created fresh on startup and destroyed when the server stops.
+This is the fastest way to run and review the API.  The application starts with an **ephemeral in-memory SQLite database** that is created fresh on startup and destroyed when the server stops.  All 8 endpoints, all validation rules, and all business logic work identically to the PostgreSQL path.
+
+You can either **start the server interactively** (to explore via Swagger UI) or **run the automated 42-test suite** — both are covered below.
 
 ---
 
@@ -32,7 +34,43 @@ This means the full API (all 8 endpoints, all validation, all business rules) wo
 
 ---
 
-## One-Command Test
+## Quick Start (Interactive Server)
+
+Start the server and explore the API via Swagger UI in your browser:
+
+```bash
+cd titanbay-service
+python -m venv venv && source venv/bin/activate   # Windows PowerShell: .\venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+USE_SQLITE=true uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+> **Windows PowerShell** users — set the env var separately:
+>
+> ```powershell
+> $env:USE_SQLITE="true"; uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+> ```
+
+Once running, open **<http://localhost:8000/docs>** in your browser for the interactive Swagger UI, or hit endpoints with curl:
+
+```bash
+# Health check
+curl http://localhost:8000/health
+
+# Create a fund
+curl -X POST http://localhost:8000/api/v1/funds \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Test Fund","vintage_year":2025,"target_size_usd":100000000,"status":"Fundraising"}'
+
+# List all funds
+curl http://localhost:8000/api/v1/funds
+```
+
+The database is in-memory — data resets when you restart the server. Press `Ctrl+C` to stop.
+
+---
+
+## One-Command Test Suite
 
 ```bash
 bash scripts/test_no_db.sh
