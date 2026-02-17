@@ -6,6 +6,7 @@ uvicorn[standard]>=0.34.0
 sqlalchemy>=2.0.36
 sqlmodel>=0.0.22
 asyncpg>=0.30.0
+aiosqlite>=0.20.0
 
 # ── Settings & validation ──
 pydantic-settings>=2.7.1
