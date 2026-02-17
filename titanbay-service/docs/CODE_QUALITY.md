@@ -18,14 +18,23 @@ All three tools are installed via `requirements.txt` and configured to work toge
 
 ## Quick Start
 
+> **Important:** All commands below must be run from the `titanbay-service/`
+> directory — **not** the repository root. The tools read their configuration
+> from `pyproject.toml` and `setup.cfg` in the current working directory;
+> running from the wrong folder will cause incorrect paths, missed config,
+> or false-positive lint errors.
+
 ```bash
-# From the titanbay-service directory
+# Always start from the service directory
+cd titanbay-service
 pip install -r requirements.txt
 ```
 
-### Check (Dry Run — No Changes)
+### Check
 
 ```bash
+cd titanbay-service
+
 # Check formatting
 black --check app/ tests/
 
@@ -39,6 +48,8 @@ flake8 app/ tests/
 ### Fix (Auto-Format)
 
 ```bash
+cd titanbay-service
+
 # Format code
 black app/ tests/
 
@@ -51,6 +62,8 @@ isort app/ tests/
 ### Run All Three in One Command
 
 ```bash
+cd titanbay-service
+
 # Check all (CI mode — fails on any issue)
 black --check app/ tests/ && isort --check app/ tests/ && flake8 app/ tests/
 
@@ -308,6 +321,7 @@ Install: `pip install pre-commit && pre-commit install`
 | flake8 reports unused imports in `__init__.py` | Add `per-file-ignores = __init__.py:F401` |
 | `E203` false positives on slices | Add `E203` to `extend-ignore` |
 | Tools not found | Run `pip install -r requirements.txt` |
+| Config not picked up / unexpected lint errors | You're running from the repo root — `cd titanbay-service` first so tools read `pyproject.toml` and `setup.cfg` |
 
 ---
 

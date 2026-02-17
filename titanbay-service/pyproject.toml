@@ -19,7 +19,10 @@ markers = [
     "unit: Pure unit tests (no I/O, mocked dependencies)",
 ]
 filterwarnings = [
-    "ignore::DeprecationWarning",
+    # FastAPI / Starlette use asyncio.iscoroutinefunction() which was
+    # deprecated in Python 3.14 (removal in 3.16). Safe to suppress
+    # until upstream releases a fix.
+    "ignore:'asyncio.iscoroutinefunction':DeprecationWarning",
 ]
 
 # ── coverage ──

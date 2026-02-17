@@ -6,17 +6,27 @@ no real database or network I/O is needed.  This ensures tests are
 fast, deterministic, and fully isolated.
 """
 
-import uuid
-from datetime import date, datetime, timezone
-from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock
+import os
 
-import pytest
+# ── Force SQLite mode BEFORE any app imports ──
+# The app.core.config module instantiates a global ``settings`` object at
+# import time.  Its model_validator requires PostgreSQL credentials unless
+# USE_SQLITE is truthy.  Setting the env var here ensures that pytest can
+# collect and run tests without a real database, regardless of whether the
+# developer has a .env file or PG credentials configured.
+os.environ.setdefault("USE_SQLITE", "true")
 
-from app.core.cache import TTLCache
-from app.models.fund import Fund, FundStatus
-from app.models.investment import Investment
-from app.models.investor import Investor, InvestorType
+import uuid  # noqa: E402
+from datetime import date, datetime, timezone  # noqa: E402
+from decimal import Decimal  # noqa: E402
+from unittest.mock import AsyncMock, MagicMock  # noqa: E402
+
+import pytest  # noqa: E402
+
+from app.core.cache import TTLCache  # noqa: E402
+from app.models.fund import Fund, FundStatus  # noqa: E402
+from app.models.investment import Investment  # noqa: E402
+from app.models.investor import Investor, InvestorType  # noqa: E402
 
 # ────────────────────────────────────────────────────────────────────────────
 # Factory helpers — create domain objects with sensible defaults

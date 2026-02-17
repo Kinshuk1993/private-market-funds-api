@@ -9,8 +9,8 @@ Comprehensive unit and integration test suite for the Titanbay Private Markets A
 | Metric | Value |
 | ------- | ------- |
 | **Framework** | pytest 8+ with pytest-asyncio |
-| **Total tests** | 154 |
-| **Coverage** | ~90% (services: 100%, schemas: 100%, cache: 100%) |
+| **Total tests** | 160 |
+| **Coverage** | ~91% (services: 100%, schemas: 100%, cache: 100%, exceptions: 100%) |
 | **Execution time** | < 1 second |
 | **Database required** | No — all tests use mocked repositories |
 
@@ -22,12 +22,12 @@ tests/
 ├── test_schemas.py              # Pydantic schema validation (32 tests)
 ├── test_cache.py                # In-memory TTL cache (22 tests)
 ├── test_resilience.py           # Circuit breaker & retry decorator (20 tests)
-├── test_exceptions.py           # Domain exceptions (12 tests)
+├── test_exceptions.py           # Domain exceptions & handlers (15 tests)
 ├── test_fund_service.py         # FundService business logic (23 tests)
 ├── test_investor_service.py     # InvestorService business logic (7 tests)
 ├── test_investment_service.py   # InvestmentService business logic (11 tests)
 ├── test_middleware.py           # Request ID & timing middleware (4 tests)
-├── test_config.py               # Settings / configuration (6 tests)
+├── test_config.py               # Settings / configuration (8 tests)
 └── test_api.py                  # API endpoint integration tests (18 tests)
 ```
 
@@ -47,14 +47,28 @@ tests/
 
 ### Prerequisites
 
+> **Important:** All commands below must be run from the `titanbay-service/`
+> directory — **not** the repository root. Pytest reads its configuration from
+> `pyproject.toml` in the current working directory; running from the wrong
+> folder will cause missing-module errors, asyncio-mode failures, and
+> unsuppressed warnings.
+
 ```bash
-# From the titanbay-service directory
+# Always start from the service directory
+cd titanbay-service
 pip install -r requirements.txt
 ```
 
 ### Run All Tests
 
+> **No database required.** The test `conftest.py` automatically sets
+> `USE_SQLITE=true` before any application code is imported, so you can
+> run the full suite without PostgreSQL credentials or a running database.
+
 ```bash
+# Make sure you're in the titanbay-service directory first
+cd titanbay-service
+
 # Basic run (verbose output, short tracebacks)
 pytest
 
@@ -128,7 +142,7 @@ fail_under = 85
 | `schemas/` | **100%** | All validators & serializers covered |
 | `core/cache.py` | **100%** | Full TTL, eviction, invalidation |
 | `core/resilience.py` | **99%** | All CB states + retry decorator |
-| `core/exceptions.py` | **89%** | All exceptions + handler registration |
+| `core/exceptions.py` | **100%** | All exceptions + all 5 handler responses |
 | `api/endpoints/` | **95%** | All routes, DI functions line-only miss |
 | `middleware.py` | **96%** | Full dispatch cycle covered |
 | `repositories/` | **27-100%** | Base repo has low coverage (mocked in service tests) |
@@ -204,7 +218,7 @@ Full HTTP request → response cycle using `httpx.AsyncClient`:
 
 All tests use `unittest.mock.AsyncMock` for repository calls. This makes tests:
 
-- **Fast** — 154 tests in < 1 second
+- **Fast** — 160 tests in < 2 seconds
 - **Deterministic** — No flaky failures from DB state
 - **Portable** — No PostgreSQL or Docker required
 
@@ -256,7 +270,9 @@ Add to your CI pipeline (GitHub Actions example):
 
 | Problem | Solution |
 | --------- | ---------- |
-| `ModuleNotFoundError: No module named 'app'` | Run pytest from the `titanbay-service/` directory |
+| `ModuleNotFoundError: No module named 'app'` | Run pytest from the `titanbay-service/` directory, not the repo root |
+| Hundreds of `DeprecationWarning` about `asyncio.iscoroutinefunction` | You're running from the repo root — `cd titanbay-service` first so pytest loads `pyproject.toml` warning filters |
+| `async def functions are not natively supported` | Same cause — `asyncio_mode = "auto"` in `pyproject.toml` isn't being loaded; `cd titanbay-service` first |
 | `pytest-asyncio` warnings | Ensure `asyncio_mode = "auto"` in `pyproject.toml` |
 | Coverage below threshold | Run with `--cov-report=term-missing` to see uncovered lines |
 | Import errors in tests | Check that `tests/__init__.py` exists |

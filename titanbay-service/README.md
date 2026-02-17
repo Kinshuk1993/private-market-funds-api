@@ -72,8 +72,9 @@ app/
 | [Docker Setup](docs/SETUP_DOCKER.md) | Full Docker walkthrough (steps 1-6, teardown, one-command test) |
 | [Local Setup](docs/SETUP_LOCAL.md) | Local dev prerequisites, venv, DB creation, one-command test |
 | [No-DB Setup](docs/SETUP_NO_DB.md) | Zero-dependency testing with in-memory SQLite (no Docker, no PostgreSQL) |
-| [Testing Guide](docs/TESTING.md) | Unit test suite: 154 pytest tests, ~90% coverage, test architecture |
+| [Testing Guide](docs/TESTING.md) | Unit test suite: 160 pytest tests, ~91% coverage, test architecture |
 | [Code Quality](docs/CODE_QUALITY.md) | black, isort, flake8 setup: formatting, import sorting, linting |
+| [Future Enhancements](docs/FUTURE_ENHANCEMENTS.md) | Roadmap: coverage improvements, CI/CD, concurrency, Docker, security, observability |
 
 ## Quick Start
 
@@ -178,22 +179,6 @@ For curl examples, see **[API Examples](docs/API_EXAMPLES.md)**.
 | ------ | ---- | ----------- |
 | GET | `/funds/{fund_id}/investments` | List investments for a fund |
 | POST | `/funds/{fund_id}/investments` | Create a new investment |
-
-## Key Design Decisions
-
-1. **PUT /funds with id in body** — The API spec shows `PUT /funds` with the `id` included in the JSON body rather than the URL path.  We follow the spec exactly.
-
-2. **Closed-fund invariant** — Investments into funds with `status: Closed` are rejected with a 422 (Business Rule Violation), not a generic 400.
-
-3. **Investor existence check on investment creation** — Before persisting an investment, we verify both the fund *and* the investor exist to avoid opaque FK-violation errors.
-
-4. **Duplicate email detection** — Creating an investor with an email that already exists returns a 409 Conflict with a clear message, rather than a raw DB constraint error.
-
-5. **Timezone-aware timestamps** — All `created_at` fields use `datetime.now(timezone.utc)` instead of the deprecated `datetime.utcnow()`.
-
-6. **Connection pooling** — The async engine is configured with explicit `pool_size`, `max_overflow`, `pool_recycle`, and `pool_pre_ping` for production reliability.
-
-7. **Multi-stage Docker build** — The Dockerfile uses a builder stage to install dependencies, then copies only the virtual environment into a slim runtime image.  The app runs as a non-root user.
 
 ## Error Response Format
 

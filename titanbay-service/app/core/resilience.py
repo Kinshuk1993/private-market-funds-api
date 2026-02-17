@@ -56,8 +56,7 @@ class CircuitBreakerError(Exception):
         self.name = name
         self.retry_after = retry_after
         super().__init__(
-            f"Circuit breaker '{name}' is OPEN — failing fast. "
-            f"Retry after {retry_after:.1f}s."
+            f"Circuit breaker '{name}' is OPEN — failing fast. " f"Retry after {retry_after:.1f}s."
         )
 
 
@@ -153,9 +152,7 @@ class CircuitBreaker:
         state = self.state  # triggers OPEN → HALF_OPEN check
 
         if state == CircuitState.OPEN:
-            retry_after = self.recovery_timeout - (
-                time.monotonic() - self._last_failure_time
-            )
+            retry_after = self.recovery_timeout - (time.monotonic() - self._last_failure_time)
             raise CircuitBreakerError(self.name, max(retry_after, 0))
 
         try:

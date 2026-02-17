@@ -29,9 +29,7 @@ from typing import Any, Dict
 from app.core.config import settings
 
 # ── Log directory — created relative to the project root ──
-LOG_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "logs"
-)
+LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "logs")
 
 
 class JSONFormatter(logging.Formatter):
@@ -53,9 +51,7 @@ class JSONFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         log_entry: Dict[str, Any] = {
-            "timestamp": datetime.fromtimestamp(
-                record.created, tz=timezone.utc
-            ).isoformat(),
+            "timestamp": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),

@@ -49,3 +49,47 @@ class TestDatabaseURL:
 
         if settings.USE_SQLITE:
             assert "sqlite" in settings.DATABASE_URL
+
+    def test_postgres_url(self):
+        """Construct a Settings with PG creds to cover the PostgreSQL branch."""
+        from app.core.config import Settings
+
+        s = Settings(
+            USE_SQLITE=False,
+            POSTGRES_USER="u",
+            POSTGRES_PASSWORD="p",
+            POSTGRES_SERVER="localhost",
+            POSTGRES_DB="db",
+            POSTGRES_PORT=5432,
+        )
+        url = s.DATABASE_URL
+        assert url.startswith("postgresql+asyncpg://")
+        assert "u:p@localhost:5432/db" in url
+
+    def test_pg_missing_credentials_raises(self):
+        """Settings validator rejects missing PG credentials in non-SQLite mode."""
+        import os
+
+        import pytest
+
+        from app.core.config import Settings
+
+        # conftest sets USE_SQLITE=true globally, and .env supplies PG creds.
+        # Temporarily remove both so the validator sees empty PG fields with
+        # USE_SQLITE=False.
+        saved = {}
+        for key in (
+            "USE_SQLITE",
+            "POSTGRES_USER",
+            "POSTGRES_PASSWORD",
+            "POSTGRES_SERVER",
+            "POSTGRES_DB",
+        ):
+            saved[key] = os.environ.pop(key, None)
+        try:
+            with pytest.raises(Exception, match="POSTGRES_USER"):
+                Settings(USE_SQLITE=False, _env_file=None)  # type: ignore[call-arg]
+        finally:
+            for key, val in saved.items():
+                if val is not None:
+                    os.environ[key] = val
