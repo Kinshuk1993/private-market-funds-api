@@ -5,6 +5,7 @@ Initialises the FastAPI application, registers middleware, exception handlers,
 routers, and manages the application lifecycle (DB table creation on startup).
 """
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
@@ -12,6 +13,7 @@ from collections.abc import AsyncGenerator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.openapi.docs import get_redoc_html
 from sqlalchemy import text
 from sqlmodel import SQLModel
 
@@ -42,20 +44,49 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     Startup:
       - Imports all SQLModel table models so metadata is populated.
-      - Creates all tables that do not yet exist (safe for re-runs).
+      - Attempts to connect to PostgreSQL and create tables, with retry logic.
+      - If the database is unreachable after all retries, the app starts in
+        degraded mode (health check will report ``database: false``).
 
     Shutdown:
       - Disposes of the connection pool to release DB connections cleanly.
     """
-    logger.info("Starting up — creating database tables if they do not exist")
     # Import models so SQLModel.metadata knows about them
     import app.models.fund  # noqa: F401
     import app.models.investor  # noqa: F401
     import app.models.investment  # noqa: F401
 
-    async with engine.begin() as conn:
-        await conn.run_sync(SQLModel.metadata.create_all)
-    logger.info("Database tables ready")
+    max_retries = 5
+    retry_delay = 2  # seconds (doubles each attempt)
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            logger.info("Connecting to database (attempt %d/%d)…", attempt, max_retries)
+            async with engine.begin() as conn:
+                await conn.run_sync(SQLModel.metadata.create_all)
+            logger.info("Database tables ready")
+            break
+        except Exception as exc:
+            if attempt < max_retries:
+                logger.warning(
+                    "Database connection failed (attempt %d/%d): %s — "
+                    "retrying in %ds…",
+                    attempt,
+                    max_retries,
+                    exc,
+                    retry_delay,
+                )
+                await asyncio.sleep(retry_delay)
+                retry_delay *= 2  # exponential back-off
+            else:
+                logger.error(
+                    "Could not connect to database after %d attempts. "
+                    "The application will start in DEGRADED mode — all "
+                    "database-dependent endpoints will return 500 errors "
+                    "until the database becomes available. Last error: %s",
+                    max_retries,
+                    exc,
+                )
 
     yield  # ← application is running
 
@@ -75,8 +106,21 @@ app = FastAPI(
         "and their investments."
     ),
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
+    redoc_url=None,  # Disabled default — custom route below uses a working CDN
     lifespan=lifespan,
 )
+
+
+# ── Custom ReDoc route — default cdn.redoc.ly is blocked by Chrome ORB ──
+@app.get("/redoc", include_in_schema=False)
+async def custom_redoc_html():
+    """Serve ReDoc using the unpkg CDN which has proper CORS headers."""
+    return get_redoc_html(
+        openapi_url=app.openapi_url or f"{settings.API_V1_STR}/openapi.json",
+        title=f"{settings.PROJECT_NAME} — ReDoc",
+        redoc_js_url="https://unpkg.com/redoc@latest/bundles/redoc.standalone.js",
+    )
+
 
 # ── Middleware (order matters: outermost = first to execute) ──
 # GZip compresses responses > 500 bytes — critical for reducing bandwidth

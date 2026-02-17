@@ -36,7 +36,7 @@ def _get_fund_service(db: AsyncSession = Depends(get_db)) -> FundService:
 
 
 @router.get(
-    "/",
+    "",
     response_model=List[FundResponse],
     summary="List all funds",
     description=(
@@ -53,7 +53,7 @@ async def list_funds(
 
 
 @router.post(
-    "/",
+    "",
     response_model=FundResponse,
     status_code=201,
     summary="Create a new fund",
@@ -70,7 +70,7 @@ async def create_fund(
 
 
 @router.put(
-    "/",
+    "",
     response_model=FundResponse,
     summary="Update an existing fund",
     description=(
