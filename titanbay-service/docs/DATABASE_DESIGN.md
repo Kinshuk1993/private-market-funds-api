@@ -4,6 +4,8 @@
 > for the Titanbay Private Markets API — designed to support millions of records
 > and thousands of concurrent users with ultra-low latency.
 
+[← Back to README](../README.md)
+
 ---
 
 ## Table of Contents
